@@ -13,7 +13,7 @@ export function registerNewEvent(bot: Bot<Context>) {
     }
     const userId = String(ctx.from!.id);
     const chatId = String(ctx.chat!.id);
-    setState(userId, chatId, { step: 'TITLE' });
+    await setState(userId, chatId, { step: 'TITLE' });
     await ctx.reply(
       '📝 Создаём тренировку\n\n' +
       'Напиши название, например:\n' +
@@ -31,12 +31,12 @@ export async function handleText(ctx: Context) {
 
   const userId = String(ctx.from.id);
   const chatId = String(ctx.chat.id);
-  const state = getState(userId, chatId);
+  const state = await getState(userId, chatId);
   if (!state) return;
 
   // Шаг 1 — название
   if (state.step === 'TITLE') {
-    setState(userId, chatId, { step: 'DATE', title: text });
+    await setState(userId, chatId, { step: 'DATE', title: text });
     await ctx.reply('📅 Дата и время?\n\nФормат: ДД.ММ ЧЧ:ММ\nПример: 20.04 19:00');
     return;
   }
@@ -52,23 +52,23 @@ export async function handleText(ctx: Context) {
       await ctx.reply('⚠️ Эта дата уже прошла. Укажи будущую дату:');
       return;
     }
-    setState(userId, chatId, { step: 'LIMIT', title: state.title, datetime });
+    await setState(userId, chatId, { step: 'LIMIT', title: state.title ?? '', datetime });
     await ctx.reply('👥 Максимум участников?\n\nНапиши число или 0 чтобы без ограничений');
     return;
   }
 
-  // Шаг 3 — лимит
+  // Шаг 3 — лимит и создание
   if (state.step === 'LIMIT') {
     const num = parseInt(text, 10);
     const maxParticipants = (!isNaN(num) && num > 0) ? num : null;
-    clearState(userId, chatId);
+    await clearState(userId, chatId);
 
     try {
       const event = await prisma.event.create({
         data: {
           groupId: chatId,
-          title: state.title!,
-          datetime: state.datetime!,
+          title: state.title ?? 'Тренировка',
+          datetime: state.datetime ?? new Date(),
           maxParticipants,
           createdBy: userId,
           status: 'ACTIVE',
@@ -87,9 +87,8 @@ export async function handleText(ctx: Context) {
         data: { messageId: sent.message_id },
       });
     } catch (e) {
-      await ctx.reply('❌ Ошибка при создании тренировки. Попробуй ещё раз /newevent');
+      await ctx.reply('❌ Ошибка при создании. Попробуй /newevent ещё раз.');
       console.error('Create event error:', e);
     }
-    return;
   }
 }

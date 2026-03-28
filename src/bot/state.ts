@@ -1,22 +1,28 @@
+// Состояние диалога хранится в PostgreSQL — переживает рестарты бота
+import prisma from '../db/prisma';
+
 export type Step = 'TITLE' | 'DATE' | 'LIMIT';
-
-export interface DialogState {
-  step: Step;
-  title?: string;
-  datetime?: Date;
-}
-
-const states = new Map<string, DialogState>();
 
 export function getKey(userId: string, chatId: string) {
   return `${userId}_${chatId}`;
 }
-export function getState(userId: string, chatId: string): DialogState | undefined {
-  return states.get(getKey(userId, chatId));
+
+export async function getState(userId: string, chatId: string) {
+  return prisma.botState.findUnique({ where: { id: getKey(userId, chatId) } });
 }
-export function setState(userId: string, chatId: string, state: DialogState) {
-  states.set(getKey(userId, chatId), state);
+
+export async function setState(userId: string, chatId: string, data: {
+  step: Step;
+  title?: string;
+  datetime?: Date;
+}) {
+  await prisma.botState.upsert({
+    where: { id: getKey(userId, chatId) },
+    create: { id: getKey(userId, chatId), ...data },
+    update: data,
+  });
 }
-export function clearState(userId: string, chatId: string) {
-  states.delete(getKey(userId, chatId));
+
+export async function clearState(userId: string, chatId: string) {
+  await prisma.botState.deleteMany({ where: { id: getKey(userId, chatId) } });
 }

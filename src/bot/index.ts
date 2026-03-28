@@ -12,15 +12,13 @@ async function main() {
 
   const bot = new Bot<Context>(token);
 
-  // Сброс зависшего диалога
   bot.command('start_over', async (ctx) => {
     if (ctx.from && ctx.chat) {
-      clearState(String(ctx.from.id), String(ctx.chat.id));
+      await clearState(String(ctx.from.id), String(ctx.chat.id));
     }
     await ctx.reply('✅ Сброшено! Теперь пиши /newevent');
   });
 
-  // Регистрация группы при добавлении бота
   bot.on('my_chat_member', async (ctx) => {
     const newStatus = ctx.myChatMember.new_chat_member.status;
     const chat = ctx.chat;
@@ -43,13 +41,11 @@ async function main() {
     }
   });
 
-  // Команды
   registerNewEvent(bot);
   registerEvents(bot);
   registerCancel(bot);
   registerRsvp(bot);
 
-  // Все текстовые сообщения — продолжение диалога
   bot.on('message:text', handleText);
 
   bot.command('help', async (ctx) => {

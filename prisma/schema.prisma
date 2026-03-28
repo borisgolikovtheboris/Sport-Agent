@@ -7,6 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model BotState {
+  id        String   @id
+  step      String
+  title     String?
+  datetime  DateTime?
+  updatedAt DateTime @updatedAt
+}
+
 model Group {
   chatId  String   @id
   title   String

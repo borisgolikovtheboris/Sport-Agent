@@ -1,6 +1,5 @@
 import { Bot, Context, session } from 'grammy';
 import { conversations, createConversation, ConversationFlavor } from '@grammyjs/conversations';
-import { PrismaAdapter } from '@grammyjs/storage-prisma';
 import prisma from '../db/prisma';
 import { newEventConversation, registerNewEvent } from './commands/newevent';
 import { registerEvents } from './commands/events';
@@ -15,15 +14,12 @@ async function main() {
 
   const bot = new Bot<MyContext>(token);
 
-  // ── Session с хранением в PostgreSQL (переживает рестарты) ──
-  bot.use(session({
-    initial: () => ({}),
-    storage: new PrismaAdapter(prisma.session),
-  }));
+  // Сессия в памяти — достаточно для диалогов (создание тренировки занимает < 2 мин)
+  bot.use(session({ initial: () => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, 'newEvent'));
 
-  // ── Register group on bot join ──
+  // ── Регистрация группы при добавлении бота ──
   bot.on('my_chat_member', async (ctx) => {
     const newStatus = ctx.myChatMember.new_chat_member.status;
     const chat = ctx.chat;
@@ -52,7 +48,7 @@ async function main() {
     }
   });
 
-  // ── Commands ──
+  // ── Команды ──
   registerNewEvent(bot);
   registerEvents(bot);
   registerCancel(bot);
@@ -70,12 +66,8 @@ async function main() {
     );
   });
 
-  // ── Error handler ──
   bot.catch((err) => {
     console.error('Bot error:', err.message);
-    if (process.env.NODE_ENV === 'development') {
-      console.error(err.error);
-    }
   });
 
   await bot.api.setMyCommands([

@@ -1,6 +1,4 @@
-import { Event, Participant } from '@prisma/client';
-
-type EventWithParticipants = Event & { participants: Participant[] };
+import { EventData, ParticipantData } from '../types';
 
 const DAYS_RU = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
 const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
@@ -15,12 +13,12 @@ function formatDateRu(date: Date): string {
   return `${day} ${month}, ${weekday} · ${hours}:${minutes}`;
 }
 
-function formatParticipantName(p: Participant): string {
+function formatParticipantName(p: ParticipantData): string {
   return p.username ? `@${p.username}` : p.firstName;
 }
 
-export function formatEventCard(event: EventWithParticipants): string {
-  const going = event.participants.filter(p => p.status === 'GOING');
+export function formatEventCard(event: EventData): string {
+  const going = event.participants.filter((p: ParticipantData) => p.status === 'GOING');
   const spotsTotal = event.maxParticipants;
   const spotsUsed = going.length;
 
@@ -29,12 +27,12 @@ export function formatEventCard(event: EventWithParticipants): string {
     : `👥 Участников: ${spotsUsed}`;
 
   const participantList = going.length > 0
-    ? going.map((p, i) => `${i + 1}. ${formatParticipantName(p)}`).join('\n')
+    ? going.map((p: ParticipantData, i: number) => `${i + 1}. ${formatParticipantName(p)}`).join('\n')
     : '(пока никого)';
 
   const isCancelled = event.status === 'CANCELLED';
   const titleLine = isCancelled
-    ? `❌ ~~${event.title}~~ ОТМЕНЕНО`
+    ? `❌ ${event.title} — ОТМЕНЕНО`
     : `🏃 ${event.title}`;
 
   return [
@@ -47,13 +45,12 @@ export function formatEventCard(event: EventWithParticipants): string {
   ].join('\n');
 }
 
-export function formatEventShort(event: EventWithParticipants, index: number): string {
-  const going = event.participants.filter(p => p.status === 'GOING').length;
+export function formatEventShort(event: EventData, index: number): string {
+  const going = event.participants.filter((p: ParticipantData) => p.status === 'GOING').length;
   const spots = event.maxParticipants ? `${going}/${event.maxParticipants}` : `${going}`;
   const hours = String(event.datetime.getHours()).padStart(2, '0');
   const minutes = String(event.datetime.getMinutes()).padStart(2, '0');
   const day = event.datetime.getDate();
   const month = MONTHS_RU[event.datetime.getMonth()];
-
   return `${index}. 🏃 ${event.title}\n   📅 ${day} ${month} · ${hours}:${minutes} · ${spots} чел.`;
 }

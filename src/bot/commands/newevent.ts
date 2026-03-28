@@ -1,90 +1,95 @@
 import { Bot, Context } from 'grammy';
-import { Conversation, ConversationFlavor, createConversation } from '@grammyjs/conversations';
 import { InlineKeyboard } from 'grammy';
 import prisma from '../../db/prisma';
 import { parseDate } from '../../utils/parseDate';
 import { formatEventCard } from '../../utils/formatEvent';
+import { getState, setState, clearState } from '../state';
 
-type MyContext = Context & ConversationFlavor;
-type MyConversation = Conversation<MyContext>;
-
-// Ждёт текстовое сообщение. Если пришла команда — выходит из диалога
-async function waitForText(conversation: MyConversation, ctx: MyContext): Promise<string | null> {
-  const msg = await conversation.waitFor('message:text');
-  const text = msg.message.text.trim();
-  if (text.startsWith('/')) {
-    await ctx.reply('❌ Создание тренировки отменено.');
-    return null;
-  }
-  return text;
-}
-
-export async function newEventConversation(conversation: MyConversation, ctx: MyContext) {
-  const chatId = String(ctx.chat!.id);
-  const userId = String(ctx.from!.id);
-
-  // ── Шаг 1: Название ──
-  await ctx.reply(
-    '📝 Создаём тренировку\n\nНапиши название, например:\nФутбол в Лужниках или Йога на крыше\n\n(любая команда отменит создание)'
-  );
-
-  const title = await waitForText(conversation, ctx);
-  if (!title) return;
-
-  // ── Шаг 2: Дата и время ──
-  await ctx.reply('📅 Дата и время?\n\nФормат: ДД.ММ ЧЧ:ММ\nПример: 15.04 19:00');
-
-  let datetime: Date | null = null;
-  while (!datetime) {
-    const dateText = await waitForText(conversation, ctx);
-    if (!dateText) return;
-
-    datetime = parseDate(dateText);
-    if (!datetime) {
-      await ctx.reply('⚠️ Не понял формат. Пример: 15.04 19:00');
-    } else if (datetime < new Date()) {
-      await ctx.reply('⚠️ Эта дата уже прошла. Укажи будущую дату:');
-      datetime = null;
-    }
-  }
-
-  // ── Шаг 3: Максимум участников ──
-  await ctx.reply('👥 Максимум участников?\n\nНапиши число или /skip чтобы без ограничений');
-
-  let maxParticipants: number | null = null;
-  const limitMsg = await conversation.waitFor('message:text');
-  const limitText = limitMsg.message.text.trim();
-  if (limitText !== '/skip') {
-    const parsed = parseInt(limitText, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      maxParticipants = parsed;
-    }
-  }
-
-  // ── Сохранить в БД ──
-  const event = await prisma.event.create({
-    data: { groupId: chatId, title, datetime, maxParticipants, createdBy: userId, status: 'ACTIVE' },
-    include: { participants: true },
-  });
-
-  const keyboard = new InlineKeyboard()
-    .text('✅ Иду', `go:${event.id}`)
-    .text('❌ Не иду', `notgo:${event.id}`);
-
-  const sent = await ctx.reply(formatEventCard(event), { reply_markup: keyboard });
-
-  await prisma.event.update({
-    where: { id: event.id },
-    data: { messageId: sent.message_id },
-  });
-}
-
-export function registerNewEvent(bot: Bot<MyContext>) {
+export function registerNewEvent(bot: Bot<Context>) {
   bot.command('newevent', async (ctx) => {
     if (ctx.chat?.type === 'private') {
       await ctx.reply('⚠️ Эта команда работает только в групповых чатах.');
       return;
     }
-    await ctx.conversation.enter('newEvent');
+    const userId = String(ctx.from!.id);
+    const chatId = String(ctx.chat!.id);
+    setState(userId, chatId, { step: 'TITLE' });
+    await ctx.reply(
+      '📝 Создаём тренировку\n\n' +
+      'Напиши название, например:\n' +
+      'Футбол в Лужниках или Йога на крыше'
+    );
   });
+}
+
+export async function handleText(ctx: Context) {
+  if (!ctx.message || !ctx.from || !ctx.chat) return;
+  if (ctx.chat.type === 'private') return;
+
+  const text = ctx.message.text?.trim();
+  if (!text || text.startsWith('/')) return;
+
+  const userId = String(ctx.from.id);
+  const chatId = String(ctx.chat.id);
+  const state = getState(userId, chatId);
+  if (!state) return;
+
+  // Шаг 1 — название
+  if (state.step === 'TITLE') {
+    setState(userId, chatId, { step: 'DATE', title: text });
+    await ctx.reply('📅 Дата и время?\n\nФормат: ДД.ММ ЧЧ:ММ\nПример: 20.04 19:00');
+    return;
+  }
+
+  // Шаг 2 — дата
+  if (state.step === 'DATE') {
+    const datetime = parseDate(text);
+    if (!datetime) {
+      await ctx.reply('⚠️ Не понял формат. Пример: 20.04 19:00');
+      return;
+    }
+    if (datetime < new Date()) {
+      await ctx.reply('⚠️ Эта дата уже прошла. Укажи будущую дату:');
+      return;
+    }
+    setState(userId, chatId, { step: 'LIMIT', title: state.title, datetime });
+    await ctx.reply('👥 Максимум участников?\n\nНапиши число или 0 чтобы без ограничений');
+    return;
+  }
+
+  // Шаг 3 — лимит
+  if (state.step === 'LIMIT') {
+    const num = parseInt(text, 10);
+    const maxParticipants = (!isNaN(num) && num > 0) ? num : null;
+    clearState(userId, chatId);
+
+    try {
+      const event = await prisma.event.create({
+        data: {
+          groupId: chatId,
+          title: state.title!,
+          datetime: state.datetime!,
+          maxParticipants,
+          createdBy: userId,
+          status: 'ACTIVE',
+        },
+        include: { participants: true },
+      });
+
+      const keyboard = new InlineKeyboard()
+        .text('✅ Иду', `go:${event.id}`)
+        .text('❌ Не иду', `notgo:${event.id}`);
+
+      const sent = await ctx.reply(formatEventCard(event), { reply_markup: keyboard });
+
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { messageId: sent.message_id },
+      });
+    } catch (e) {
+      await ctx.reply('❌ Ошибка при создании тренировки. Попробуй ещё раз /newevent');
+      console.error('Create event error:', e);
+    }
+    return;
+  }
 }

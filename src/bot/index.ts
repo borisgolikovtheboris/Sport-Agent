@@ -14,8 +14,15 @@ async function main() {
 
   const bot = new Bot<MyContext>(token);
 
-  // Сессия в памяти — достаточно для диалогов (создание тренировки занимает < 2 мин)
   bot.use(session({ initial: () => ({}) }));
+
+  // ── Выход из диалога ПЕРЕД conversations middleware ──
+  // Это позволяет /start_over сбросить зависший диалог
+  bot.command('start_over', async (ctx, next) => {
+    await ctx.conversation.exit();
+    await ctx.reply('🔄 Сброшено. Начни заново командой /newevent');
+  });
+
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, 'newEvent'));
 
@@ -61,7 +68,7 @@ async function main() {
       `*/events* — список ближайших тренировок\n` +
       `*/cancel* — отменить свою тренировку\n` +
       `*/help* — эта справка\n\n` +
-      `_Кнопки ✅ Иду и ❌ Не иду появляются под карточкой тренировки_`,
+      `_Если бот завис — напиши /start\\_over для сброса_`,
       { parse_mode: 'Markdown' }
     );
   });
@@ -71,10 +78,11 @@ async function main() {
   });
 
   await bot.api.setMyCommands([
-    { command: 'newevent', description: 'Создать тренировку' },
-    { command: 'events',   description: 'Список тренировок' },
-    { command: 'cancel',   description: 'Отменить тренировку' },
-    { command: 'help',     description: 'Помощь' },
+    { command: 'newevent',    description: 'Создать тренировку' },
+    { command: 'events',      description: 'Список тренировок' },
+    { command: 'cancel',      description: 'Отменить тренировку' },
+    { command: 'start_over',  description: 'Сбросить если бот завис' },
+    { command: 'help',        description: 'Помощь' },
   ]);
 
   console.log('🤖 SportBot starting...');

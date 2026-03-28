@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Хранение сессий Grammy (нужно для conversations)
+model Session {
+  id    String @id
+  value String
+}
+
 model Group {
   chatId  String   @id
   title   String

@@ -1,5 +1,5 @@
 import { Bot, Context } from 'grammy';
-import { Conversation, ConversationFlavor, conversations, createConversation } from '@grammyjs/conversations';
+import { Conversation, ConversationFlavor, createConversation } from '@grammyjs/conversations';
 import { InlineKeyboard } from 'grammy';
 import prisma from '../../db/prisma';
 import { parseDate } from '../../utils/parseDate';
@@ -8,88 +8,71 @@ import { formatEventCard } from '../../utils/formatEvent';
 type MyContext = Context & ConversationFlavor;
 type MyConversation = Conversation<MyContext>;
 
+// Ждёт текстовое сообщение. Если пришла команда — выходит из диалога
+async function waitForText(conversation: MyConversation, ctx: MyContext): Promise<string | null> {
+  const msg = await conversation.waitFor('message:text');
+  const text = msg.message.text.trim();
+  if (text.startsWith('/')) {
+    await ctx.reply('❌ Создание тренировки отменено.');
+    return null;
+  }
+  return text;
+}
+
 export async function newEventConversation(conversation: MyConversation, ctx: MyContext) {
   const chatId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
-  // ── Step 1: Title ──
+  // ── Шаг 1: Название ──
   await ctx.reply(
-    '📝 *Создаём тренировку*\n\nНапиши название\\, например:\n_Футбол в Лужниках_ или _Йога на крыше_',
-    { parse_mode: 'MarkdownV2' }
+    '📝 Создаём тренировку\n\nНапиши название, например:\nФутбол в Лужниках или Йога на крыше\n\n(любая команда отменит создание)'
   );
 
-  const titleMsg = await conversation.waitFor('message:text');
-  const cancelCheck = titleMsg.message.text.trim();
-  if (cancelCheck === '/cancel') {
-    await ctx.reply('❌ Создание отменено.');
-    return;
-  }
-  const title = cancelCheck;
+  const title = await waitForText(conversation, ctx);
+  if (!title) return;
 
-  // ── Step 2: Date & Time ──
-  await ctx.reply(
-    '📅 Отлично\\! Теперь дата и время\\.\n\nФормат: `ДД\\.ММ ЧЧ:ММ`\nПример: `15\\.04 19:00`\n\n_Напиши /cancel чтобы отменить_',
-    { parse_mode: 'MarkdownV2' }
-  );
+  // ── Шаг 2: Дата и время ──
+  await ctx.reply('📅 Дата и время?\n\nФормат: ДД.ММ ЧЧ:ММ\nПример: 15.04 19:00');
 
   let datetime: Date | null = null;
   while (!datetime) {
-    const dateMsg = await conversation.waitFor('message:text');
-    if (dateMsg.message.text.trim() === '/cancel') {
-      await ctx.reply('❌ Создание отменено.');
-      return;
-    }
-    datetime = parseDate(dateMsg.message.text.trim());
+    const dateText = await waitForText(conversation, ctx);
+    if (!dateText) return;
+
+    datetime = parseDate(dateText);
     if (!datetime) {
-      await ctx.reply('⚠️ Не понял формат. Попробуй ещё раз:\nПример: `15.04 19:00`');
+      await ctx.reply('⚠️ Не понял формат. Пример: 15.04 19:00');
     } else if (datetime < new Date()) {
       await ctx.reply('⚠️ Эта дата уже прошла. Укажи будущую дату:');
       datetime = null;
     }
   }
 
-  // ── Step 3: Max participants (optional) ──
-  await ctx.reply(
-    '👥 Ограничить количество мест?\n\nНапиши число (например `12`) или /skip чтобы без ограничений',
-    { parse_mode: 'Markdown' }
-  );
+  // ── Шаг 3: Максимум участников ──
+  await ctx.reply('👥 Максимум участников?\n\nНапиши число или /skip чтобы без ограничений');
 
   let maxParticipants: number | null = null;
   const limitMsg = await conversation.waitFor('message:text');
   const limitText = limitMsg.message.text.trim();
-  if (limitText !== '/skip' && limitText !== '/cancel') {
+  if (limitText !== '/skip') {
     const parsed = parseInt(limitText, 10);
     if (!isNaN(parsed) && parsed > 0) {
       maxParticipants = parsed;
-    } else {
-      await ctx.reply('⚠️ Не понял, создаю без ограничения мест.');
     }
   }
 
-  // ── Save to DB ──
+  // ── Сохранить в БД ──
   const event = await prisma.event.create({
-    data: {
-      groupId: chatId,
-      title,
-      datetime,
-      maxParticipants,
-      createdBy: userId,
-      status: 'ACTIVE',
-    },
+    data: { groupId: chatId, title, datetime, maxParticipants, createdBy: userId, status: 'ACTIVE' },
     include: { participants: true },
   });
 
-  // ── Post event card ──
   const keyboard = new InlineKeyboard()
     .text('✅ Иду', `go:${event.id}`)
     .text('❌ Не иду', `notgo:${event.id}`);
 
-  const sent = await ctx.reply(formatEventCard(event), {
-    reply_markup: keyboard,
-    parse_mode: undefined,
-  });
+  const sent = await ctx.reply(formatEventCard(event), { reply_markup: keyboard });
 
-  // Save messageId so we can edit the card later
   await prisma.event.update({
     where: { id: event.id },
     data: { messageId: sent.message_id },

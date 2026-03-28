@@ -13,12 +13,15 @@ export function registerNewEvent(bot: Bot<Context>) {
     }
     const userId = String(ctx.from!.id);
     const chatId = String(ctx.chat!.id);
-    await setState(userId, chatId, { step: 'TITLE' });
-    await ctx.reply(
-      '📝 Создаём тренировку\n\n' +
-      'Напиши название, например:\n' +
-      'Футбол в Лужниках или Йога на крыше'
-    );
+
+    try {
+      await setState(userId, chatId, { step: 'TITLE' });
+      console.log(`[STATE SET] userId=${userId} chatId=${chatId} step=TITLE`);
+      await ctx.reply('📝 Создаём тренировку\n\nНапиши название:');
+    } catch (e) {
+      console.error('[ERROR] setState failed:', e);
+      await ctx.reply('❌ Ошибка базы данных. Проверь логи.');
+    }
   });
 }
 
@@ -31,13 +34,31 @@ export async function handleText(ctx: Context) {
 
   const userId = String(ctx.from.id);
   const chatId = String(ctx.chat.id);
-  const state = await getState(userId, chatId);
-  if (!state) return;
+
+  let state;
+  try {
+    state = await getState(userId, chatId);
+    console.log(`[STATE GET] userId=${userId} chatId=${chatId} state=${JSON.stringify(state)}`);
+  } catch (e) {
+    console.error('[ERROR] getState failed:', e);
+    return;
+  }
+
+  if (!state) {
+    console.log(`[NO STATE] userId=${userId} chatId=${chatId} text="${text}"`);
+    return;
+  }
 
   // Шаг 1 — название
   if (state.step === 'TITLE') {
-    await setState(userId, chatId, { step: 'DATE', title: text });
-    await ctx.reply('📅 Дата и время?\n\nФормат: ДД.ММ ЧЧ:ММ\nПример: 20.04 19:00');
+    try {
+      await setState(userId, chatId, { step: 'DATE', title: text });
+      console.log(`[STEP] TITLE → DATE, title="${text}"`);
+      await ctx.reply('📅 Дата и время?\n\nФормат: ДД.ММ ЧЧ:ММ\nПример: 20.04 19:00');
+    } catch (e) {
+      console.error('[ERROR] TITLE step failed:', e);
+      await ctx.reply('❌ Ошибка. Попробуй /newevent заново.');
+    }
     return;
   }
 
@@ -49,11 +70,17 @@ export async function handleText(ctx: Context) {
       return;
     }
     if (datetime < new Date()) {
-      await ctx.reply('⚠️ Эта дата уже прошла. Укажи будущую дату:');
+      await ctx.reply('⚠️ Эта дата уже прошла. Укажи будущую:');
       return;
     }
-    await setState(userId, chatId, { step: 'LIMIT', title: state.title ?? '', datetime });
-    await ctx.reply('👥 Максимум участников?\n\nНапиши число или 0 чтобы без ограничений');
+    try {
+      await setState(userId, chatId, { step: 'LIMIT', title: state.title ?? '', datetime });
+      console.log(`[STEP] DATE → LIMIT, datetime=${datetime}`);
+      await ctx.reply('👥 Максимум участников?\n\nНапиши число или 0 — без ограничений');
+    } catch (e) {
+      console.error('[ERROR] DATE step failed:', e);
+      await ctx.reply('❌ Ошибка. Попробуй /newevent заново.');
+    }
     return;
   }
 
@@ -61,9 +88,9 @@ export async function handleText(ctx: Context) {
   if (state.step === 'LIMIT') {
     const num = parseInt(text, 10);
     const maxParticipants = (!isNaN(num) && num > 0) ? num : null;
-    await clearState(userId, chatId);
 
     try {
+      await clearState(userId, chatId);
       const event = await prisma.event.create({
         data: {
           groupId: chatId,
@@ -81,14 +108,11 @@ export async function handleText(ctx: Context) {
         .text('❌ Не иду', `notgo:${event.id}`);
 
       const sent = await ctx.reply(formatEventCard(event), { reply_markup: keyboard });
-
-      await prisma.event.update({
-        where: { id: event.id },
-        data: { messageId: sent.message_id },
-      });
+      await prisma.event.update({ where: { id: event.id }, data: { messageId: sent.message_id } });
+      console.log(`[EVENT CREATED] id=${event.id} title="${event.title}"`);
     } catch (e) {
-      await ctx.reply('❌ Ошибка при создании. Попробуй /newevent ещё раз.');
-      console.error('Create event error:', e);
+      console.error('[ERROR] LIMIT step / create event failed:', e);
+      await ctx.reply('❌ Ошибка при создании. Попробуй /newevent заново.');
     }
   }
 }

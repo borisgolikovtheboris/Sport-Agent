@@ -1,7 +1,9 @@
 [build]
-builder = "nixpacks"
-
+builder = "NIXPACKS"
+buildCommand = "npm install && npm run build"
+ 
 [deploy]
-startCommand = "npm run db:migrate && npm start"
-restartPolicyType = "on_failure"
+startCommand = "npm run db:deploy && npm start"
+restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+ 

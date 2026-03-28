@@ -16,11 +16,11 @@ async function main() {
 
   bot.use(session({ initial: () => ({}) }));
 
-  // ── Выход из диалога ПЕРЕД conversations middleware ──
-  // Это позволяет /start_over сбросить зависший диалог
-  bot.command('start_over', async (ctx, next) => {
-    await ctx.conversation.exit();
-    await ctx.reply('🔄 Сброшено. Начни заново командой /newevent');
+  // ── /start_over очищает сессию ДО того как conversations её читает ──
+  // Напрямую обнуляем ключ __conversations в session объекте
+  bot.command('start_over', async (ctx) => {
+    (ctx.session as any).__conversations = {};
+    await ctx.reply('✅ Сброшено! Теперь пиши /newevent');
   });
 
   bot.use(conversations());
@@ -30,32 +30,27 @@ async function main() {
   bot.on('my_chat_member', async (ctx) => {
     const newStatus = ctx.myChatMember.new_chat_member.status;
     const chat = ctx.chat;
-
     if (newStatus === 'member' || newStatus === 'administrator') {
       if (chat.type === 'group' || chat.type === 'supergroup') {
         const chatId = String(chat.id);
         const adminId = String(ctx.from.id);
-
         await prisma.group.upsert({
           where: { chatId },
           create: { chatId, title: chat.title ?? 'Без названия', adminId },
           update: { title: chat.title ?? 'Без названия' },
         });
-
         await ctx.reply(
-          `👋 Привет! Я SportBot — помогаю организовывать групповые тренировки.\n\n` +
-          `Что умею:\n` +
+          `👋 Привет! Я SportBot.\n\n` +
           `✅ /newevent — создать тренировку\n` +
-          `📋 /events — список ближайших тренировок\n` +
+          `📋 /events — список тренировок\n` +
           `🗑 /cancel — отменить тренировку\n` +
-          `❓ /help — помощь\n\n` +
-          `Создай первую тренировку командой /newevent 🚀`
+          `🔄 /start_over — если бот завис\n` +
+          `❓ /help — помощь`
         );
       }
     }
   });
 
-  // ── Команды ──
   registerNewEvent(bot);
   registerEvents(bot);
   registerCancel(bot);
@@ -64,11 +59,11 @@ async function main() {
   bot.command('help', async (ctx) => {
     await ctx.reply(
       `📖 *SportBot — помощь*\n\n` +
-      `*/newevent* — создать новую тренировку\n` +
-      `*/events* — список ближайших тренировок\n` +
-      `*/cancel* — отменить свою тренировку\n` +
-      `*/help* — эта справка\n\n` +
-      `_Если бот завис — напиши /start\\_over для сброса_`,
+      `*/newevent* — создать тренировку\n` +
+      `*/events* — список тренировок\n` +
+      `*/cancel* — отменить тренировку\n` +
+      `*/start\\_over* — сброс если бот завис\n` +
+      `*/help* — эта справка`,
       { parse_mode: 'Markdown' }
     );
   });
@@ -78,11 +73,11 @@ async function main() {
   });
 
   await bot.api.setMyCommands([
-    { command: 'newevent',    description: 'Создать тренировку' },
-    { command: 'events',      description: 'Список тренировок' },
-    { command: 'cancel',      description: 'Отменить тренировку' },
-    { command: 'start_over',  description: 'Сбросить если бот завис' },
-    { command: 'help',        description: 'Помощь' },
+    { command: 'newevent',   description: 'Создать тренировку' },
+    { command: 'events',     description: 'Список тренировок' },
+    { command: 'cancel',     description: 'Отменить тренировку' },
+    { command: 'start_over', description: 'Сброс если бот завис' },
+    { command: 'help',       description: 'Помощь' },
   ]);
 
   console.log('🤖 SportBot starting...');

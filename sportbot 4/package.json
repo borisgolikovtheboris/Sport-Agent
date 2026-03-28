@@ -1,0 +1,17 @@
+{
+  "name": "sportbot",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "ts-node src/bot/index.ts",
+    "dev": "ts-node-dev --respawn src/bot/index.ts",
+    "db:push": "prisma db push --accept-data-loss"
+  },
+  "dependencies": {
+    "grammy": "^1.21.1",
+    "@prisma/client": "^5.10.0",
+    "prisma": "^5.10.0",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "@types/node": "^20.11.5"
+  }
+}

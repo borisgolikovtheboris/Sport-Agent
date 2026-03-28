@@ -1,0 +1,25 @@
+{
+  "name": "sportbot",
+  "version": "1.0.0",
+  "description": "Telegram bot for organizing group sports events",
+  "main": "dist/bot/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/bot/index.ts",
+    "build": "tsc",
+    "start": "node dist/bot/index.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "grammy": "^1.21.1",
+    "@grammyjs/conversations": "^1.2.0",
+    "@prisma/client": "^5.10.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.0",
+    "typescript": "^5.3.3",
+    "ts-node-dev": "^2.0.0",
+    "@types/node": "^20.11.5"
+  }
+}

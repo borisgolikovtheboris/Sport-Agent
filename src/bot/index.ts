@@ -80,11 +80,11 @@ async function main() {
     { command: 'help',       description: 'Помощь' },
   ]);
 
-  console.log('🤖 SportBot starting...');
+ console.log('🤖 SportBot starting...');
+  await bot.api.deleteWebhook({ drop_pending_updates: true });
   await bot.start({
     onStart: () => console.log('✅ SportBot is running!'),
   });
-}
 
 main().catch((err) => {
   console.error('Fatal error:', err);

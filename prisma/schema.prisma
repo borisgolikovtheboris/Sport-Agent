@@ -1,60 +1,26 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-// Хранение сессий Grammy (нужно для conversations)
-model Session {
-  id    String @id
-  value String
-}
-
-model Group {
-  chatId  String   @id
-  title   String
-  adminId String
-  addedAt DateTime @default(now())
-  events  Event[]
-}
-
-model Event {
-  id              String        @id @default(uuid())
-  groupId         String
-  messageId       Int?
-  title           String
-  datetime        DateTime
-  maxParticipants Int?
-  createdBy       String
-  status          EventStatus   @default(ACTIVE)
-  createdAt       DateTime      @default(now())
-  group           Group         @relation(fields: [groupId], references: [chatId])
-  participants    Participant[]
-}
-
-model Participant {
-  id        String            @id @default(uuid())
-  eventId   String
-  userId    String
-  username  String?
-  firstName String
-  status    ParticipantStatus @default(GOING)
-  joinedAt  DateTime          @default(now())
-  event     Event             @relation(fields: [eventId], references: [id])
-
-  @@unique([eventId, userId])
-}
-
-enum EventStatus {
-  ACTIVE
-  CANCELLED
-  COMPLETED
-}
-
-enum ParticipantStatus {
-  GOING
-  NOT_GOING
+{
+  "name": "sportbot",
+  "version": "1.0.0",
+  "description": "Telegram bot for organizing group sports events",
+  "main": "dist/bot/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/bot/index.ts",
+    "build": "tsc",
+    "start": "node dist/bot/index.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "grammy": "^1.21.1",
+    "@grammyjs/conversations": "^1.2.0",
+    "@grammyjs/storage-prisma": "^1.2.0",
+    "@prisma/client": "^5.10.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.0",
+    "typescript": "^5.3.3",
+    "ts-node-dev": "^2.0.0",
+    "@types/node": "^20.11.5"
+  }
 }

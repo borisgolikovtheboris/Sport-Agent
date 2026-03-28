@@ -1,5 +1,6 @@
 import { Bot, Context, session } from 'grammy';
 import { conversations, createConversation, ConversationFlavor } from '@grammyjs/conversations';
+import { PrismaAdapter } from '@grammyjs/storage-prisma';
 import prisma from '../db/prisma';
 import { newEventConversation, registerNewEvent } from './commands/newevent';
 import { registerEvents } from './commands/events';
@@ -14,8 +15,11 @@ async function main() {
 
   const bot = new Bot<MyContext>(token);
 
-  // ── Middleware ──
-  bot.use(session({ initial: () => ({}) }));
+  // ── Session с хранением в PostgreSQL (переживает рестарты) ──
+  bot.use(session({
+    initial: () => ({}),
+    storage: new PrismaAdapter(prisma.session),
+  }));
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, 'newEvent'));
 
@@ -74,7 +78,6 @@ async function main() {
     }
   });
 
-  // ── Set bot commands in Telegram menu ──
   await bot.api.setMyCommands([
     { command: 'newevent', description: 'Создать тренировку' },
     { command: 'events',   description: 'Список тренировок' },

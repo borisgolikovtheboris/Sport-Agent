@@ -16,17 +16,16 @@ async function main() {
 
   bot.use(session({ initial: () => ({}) }));
 
-  // ── /start_over очищает сессию ДО того как conversations её читает ──
-  // Напрямую обнуляем ключ __conversations в session объекте
+  // Сброс зависшего диалога — ПЕРЕД conversations
   bot.command('start_over', async (ctx) => {
-    (ctx.session as any).__conversations = {};
+    (ctx.session as Record<string, unknown>).__conversations = {};
     await ctx.reply('✅ Сброшено! Теперь пиши /newevent');
   });
 
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, 'newEvent'));
 
-  // ── Регистрация группы при добавлении бота ──
+  // Регистрация группы при добавлении бота
   bot.on('my_chat_member', async (ctx) => {
     const newStatus = ctx.myChatMember.new_chat_member.status;
     const chat = ctx.chat;
@@ -40,12 +39,12 @@ async function main() {
           update: { title: chat.title ?? 'Без названия' },
         });
         await ctx.reply(
-          `👋 Привет! Я SportBot.\n\n` +
-          `✅ /newevent — создать тренировку\n` +
-          `📋 /events — список тренировок\n` +
-          `🗑 /cancel — отменить тренировку\n` +
-          `🔄 /start_over — если бот завис\n` +
-          `❓ /help — помощь`
+          '👋 Привет! Я SportBot.\n\n' +
+          '✅ /newevent — создать тренировку\n' +
+          '📋 /events — список тренировок\n' +
+          '🗑 /cancel — отменить тренировку\n' +
+          '🔄 /start_over — если бот завис\n' +
+          '❓ /help — помощь'
         );
       }
     }
@@ -58,13 +57,12 @@ async function main() {
 
   bot.command('help', async (ctx) => {
     await ctx.reply(
-      `📖 *SportBot — помощь*\n\n` +
-      `*/newevent* — создать тренировку\n` +
-      `*/events* — список тренировок\n` +
-      `*/cancel* — отменить тренировку\n` +
-      `*/start\\_over* — сброс если бот завис\n` +
-      `*/help* — эта справка`,
-      { parse_mode: 'Markdown' }
+      '📖 SportBot — помощь\n\n' +
+      '/newevent — создать тренировку\n' +
+      '/events — список тренировок\n' +
+      '/cancel — отменить тренировку\n' +
+      '/start_over — сброс если бот завис\n' +
+      '/help — эта справка'
     );
   });
 
@@ -80,11 +78,12 @@ async function main() {
     { command: 'help',       description: 'Помощь' },
   ]);
 
- console.log('🤖 SportBot starting...');
+  console.log('🤖 SportBot starting...');
   await bot.api.deleteWebhook({ drop_pending_updates: true });
   await bot.start({
     onStart: () => console.log('✅ SportBot is running!'),
   });
+}
 
 main().catch((err) => {
   console.error('Fatal error:', err);

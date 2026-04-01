@@ -8,11 +8,11 @@ datasource db {
 }
 
 model BotState {
-  id        String   @id
+  id        String    @id
   step      String
   title     String?
   datetime  DateTime?
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime  @updatedAt
 }
 
 model Group {
@@ -20,7 +20,6 @@ model Group {
   title   String
   adminId String
   addedAt DateTime @default(now())
-  events  Event[]
 }
 
 model Event {
@@ -33,7 +32,6 @@ model Event {
   createdBy       String
   status          EventStatus   @default(ACTIVE)
   createdAt       DateTime      @default(now())
-  group           Group         @relation(fields: [groupId], references: [chatId])
   participants    Participant[]
 }
 

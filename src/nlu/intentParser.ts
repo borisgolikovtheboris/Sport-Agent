@@ -74,7 +74,8 @@ export async function parseIntent(text: string): Promise<ParsedIntent> {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      console.error(`NLU API error: ${response.status}`);
+      const errBody = await response.text();
+      console.error(`NLU API error: ${response.status}`, errBody);
       return unknownIntent(text);
     }
 

@@ -7,6 +7,8 @@ import { cancelCommand } from "./commands/cancel";
 import { registerRsvp } from "./callbacks/rsvp";
 import { registerPaymentCallbacks } from "./callbacks/payment";
 import { paymentsCommand } from "./commands/payments";
+import { nluConversation } from "./commands/nluConversation";
+import { createNluHandler } from "./nluHandler";
 
 export type MyContext = Context & SessionFlavor<{}> & ConversationFlavor<Context & SessionFlavor<{}>>;
 
@@ -17,6 +19,7 @@ export function createTelegramBot(token: string) {
   bot.use(session({ initial: () => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, "newEvent"));
+  bot.use(createConversation(nluConversation, "nluConversation"));
 
   // ── Register group on bot join ──
   bot.on("my_chat_member", async (ctx) => {
@@ -66,6 +69,7 @@ export function createTelegramBot(token: string) {
         `/cancel — отменить свою тренировку\n` +
         `/payments — сводка оплат (для организатора)\n` +
         `/help — эта справка\n\n` +
+        `<i>Или просто напиши в чат, например: «забей футбол в среду на 7 вечера, 12 чел»</i>\n\n` +
         `<i>Кнопки ✅ Иду и ❌ Не иду появляются под карточкой тренировки</i>`,
       { parse_mode: "HTML" }
     );
@@ -74,6 +78,9 @@ export function createTelegramBot(token: string) {
   // ── Callbacks ──
   registerRsvp(bot);
   registerPaymentCallbacks(bot);
+
+  // ── NLU handler (after all commands and callbacks) ──
+  bot.use(createNluHandler());
 
   // ── Error handler ──
   bot.catch((err) => {

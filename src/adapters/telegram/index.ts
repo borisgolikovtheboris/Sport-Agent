@@ -23,7 +23,7 @@ export function createTelegramBot(token: string) {
   bot.use(session({ initial: (): SessionData => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, "newEvent"));
-  bot.use(createConversation(nluConversation, "nluConversation"));
+  // nluConversation removed — NLU now handles missing fields inline via session
 
   // ── Register group on bot join ──
   bot.on("my_chat_member", async (ctx) => {

@@ -2,6 +2,6 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "npm run db:migrate && npm start"
+startCommand = "npx prisma migrate deploy && npm start"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

@@ -80,8 +80,11 @@ export async function parseIntent(text: string): Promise<ParsedIntent> {
     }
 
     const data: any = await response.json();
-    const content = data.content?.[0]?.text;
+    let content = data.content?.[0]?.text;
     if (!content) return unknownIntent(text);
+
+    // Strip markdown code fences if present
+    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/,"").trim();
 
     const parsed = JSON.parse(content);
 

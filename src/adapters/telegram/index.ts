@@ -1,4 +1,4 @@
-import { Bot, Context, session } from "grammy";
+import { Bot, Context, session, SessionFlavor } from "grammy";
 import { conversations, createConversation, ConversationFlavor } from "@grammyjs/conversations";
 import { registerGroup } from "../../services/groupService";
 import { newEventConversation } from "./commands/newevent";
@@ -6,7 +6,7 @@ import { eventsCommand } from "./commands/events";
 import { cancelCommand } from "./commands/cancel";
 import { registerRsvp } from "./callbacks/rsvp";
 
-type MyContext = Context & ConversationFlavor;
+export type MyContext = Context & SessionFlavor<{}> & ConversationFlavor<Context & SessionFlavor<{}>>;
 
 export function createTelegramBot(token: string) {
   const bot = new Bot<MyContext>(token);

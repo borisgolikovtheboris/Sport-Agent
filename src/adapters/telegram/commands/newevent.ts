@@ -1,11 +1,10 @@
-import { Context } from "grammy";
-import { Conversation, ConversationFlavor } from "@grammyjs/conversations";
+import { Conversation } from "@grammyjs/conversations";
 import { createEvent, saveMessageId } from "../../../services/eventService";
 import { parseDate } from "../../../utils/parseDate";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
+import { MyContext } from "../index";
 
-type MyContext = Context & ConversationFlavor;
-type MyConversation = Conversation<MyContext>;
+type MyConversation = Conversation<MyContext, MyContext>;
 
 export async function newEventConversation(conversation: MyConversation, ctx: MyContext) {
   const chatId = String(ctx.chat!.id);

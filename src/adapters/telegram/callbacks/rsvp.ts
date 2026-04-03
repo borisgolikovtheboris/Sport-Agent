@@ -1,10 +1,8 @@
-import { Bot, Context } from "grammy";
-import { ConversationFlavor } from "@grammyjs/conversations";
+import { Bot } from "grammy";
 import { joinEvent, leaveEvent } from "../../../services/participantService";
 import { cancelEvent } from "../../../services/eventService";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
-
-type MyContext = Context & ConversationFlavor;
+import { MyContext } from "../index";
 
 export function registerRsvp(bot: Bot<MyContext>) {
   // ── ✅ GOING ──

@@ -15,7 +15,7 @@ export async function nluConversation(conversation: MyConversation, ctx: MyConte
   const chatId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
-  const nluData = (ctx.session as any).nluData as ParsedIntent | undefined;
+  const nluData = await conversation.external(() => (ctx.session as any).nluData as ParsedIntent | undefined);
   if (!nluData) return;
 
   const entities = { ...nluData.entities };

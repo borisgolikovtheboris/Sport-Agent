@@ -10,13 +10,17 @@ import { paymentsCommand } from "./commands/payments";
 import { nluConversation } from "./commands/nluConversation";
 import { createNluHandler } from "./nluHandler";
 
-export type MyContext = Context & SessionFlavor<{}> & ConversationFlavor<Context & SessionFlavor<{}>>;
+export interface SessionData {
+  nluData?: any;
+}
+
+export type MyContext = Context & SessionFlavor<SessionData> & ConversationFlavor<Context & SessionFlavor<SessionData>>;
 
 export function createTelegramBot(token: string) {
   const bot = new Bot<MyContext>(token);
 
   // ── Middleware ──
-  bot.use(session({ initial: () => ({}) }));
+  bot.use(session({ initial: (): SessionData => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, "newEvent"));
   bot.use(createConversation(nluConversation, "nluConversation"));

@@ -1,5 +1,5 @@
 export const NLU_CONFIG = {
-  model: "claude-sonnet-4-6-20250415",
+  model: "claude-3-5-sonnet-20241022",
   maxTokens: 300,
   minConfidence: 0.6,
   timeoutMs: 5000,

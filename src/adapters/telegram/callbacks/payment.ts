@@ -1,5 +1,5 @@
-import { Bot } from "grammy";
-import { confirmPayment, getPaymentSummary } from "../../../services/paymentService";
+import { Bot, InlineKeyboard } from "grammy";
+import { confirmPayment, verifyPayment, rejectPayment, getPaymentSummary } from "../../../services/paymentService";
 import { getEvent } from "../../../services/eventService";
 import { paymentKeyboard, paymentSummaryKeyboard } from "../formatters";
 import { MyContext } from "../index";
@@ -15,19 +15,94 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
     await ctx.answerCallbackQuery(result.message);
 
     if (result.success) {
-      // Notify organizer in private
+      const event = await getEvent(eventId);
+      if (event) {
+        // Send verification buttons to organizer
+        const verifyKb = new InlineKeyboard()
+          .text("✅ Подтвердить", `verify_pay:${eventId}:${userId}`)
+          .text("❌ Отклонить", `reject_pay:${eventId}:${userId}`);
+
+        const text = `💳 <b>Оплата</b>: ${ctx.from.first_name} отметил(а) оплату за «${event.title}» (${event.price} ₽)`;
+
+        try {
+          await ctx.api.sendMessage(event.createdBy, text, {
+            parse_mode: "HTML",
+            reply_markup: verifyKb,
+          });
+        } catch (_) {
+          // Can't DM organizer — notify in group
+          await ctx.api.sendMessage(
+            event.groupId,
+            `💰 ${ctx.from.first_name} отметил(а) оплату за «${event.title}»`
+          );
+        }
+      }
+    }
+  });
+
+  // ── ✅ Организатор подтверждает оплату ──
+  bot.callbackQuery(/^verify_pay:(.+):(.+)$/, async (ctx) => {
+    const eventId = ctx.match[1];
+    const userId = ctx.match[2];
+    const organizerId = String(ctx.from.id);
+
+    const result = await verifyPayment(eventId, userId, organizerId);
+    await ctx.answerCallbackQuery(result.message);
+
+    if (result.success) {
+      await ctx.editMessageText(ctx.msg?.text + "\n\n✅ Подтверждено");
+
+      // Notify participant
       const event = await getEvent(eventId);
       if (event) {
         try {
           await ctx.api.sendMessage(
-            event.createdBy,
-            `💰 ${ctx.from.first_name} отметил(а) оплату за «${event.title}»`
+            userId,
+            `✅ Организатор подтвердил твою оплату за «${event.title}»`
           );
         } catch (_) {
-          // Can't send to organizer's DM — send to group
+          // Can't DM participant — notify in group
+          const payment = await prisma.payment.findUnique({
+            where: { eventId_userId: { eventId, userId } },
+          });
+          const name = payment?.username ? `@${payment.username}` : payment?.firstName ?? "Участник";
           await ctx.api.sendMessage(
             event.groupId,
-            `💰 ${ctx.from.first_name} отметил(а) оплату за «${event.title}»`
+            `✅ ${name}, оплата за «${event.title}» подтверждена`
+          );
+        }
+      }
+    }
+  });
+
+  // ── ❌ Организатор отклоняет оплату ──
+  bot.callbackQuery(/^reject_pay:(.+):(.+)$/, async (ctx) => {
+    const eventId = ctx.match[1];
+    const userId = ctx.match[2];
+    const organizerId = String(ctx.from.id);
+
+    const result = await rejectPayment(eventId, userId, organizerId);
+    await ctx.answerCallbackQuery(result.message);
+
+    if (result.success) {
+      await ctx.editMessageText(ctx.msg?.text + "\n\n❌ Отклонено");
+
+      // Notify participant
+      const event = await getEvent(eventId);
+      if (event) {
+        try {
+          await ctx.api.sendMessage(
+            userId,
+            `❌ Организатор не подтвердил оплату за «${event.title}». Свяжись с ним для уточнения.`
+          );
+        } catch (_) {
+          const payment = await prisma.payment.findUnique({
+            where: { eventId_userId: { eventId, userId } },
+          });
+          const name = payment?.username ? `@${payment.username}` : payment?.firstName ?? "Участник";
+          await ctx.api.sendMessage(
+            event.groupId,
+            `❌ ${name}, оплата за «${event.title}» не подтверждена. Свяжись с организатором.`
           );
         }
       }
@@ -107,26 +182,48 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const totalAmount = (event.price ?? 0) * summary.total;
 
-    const paidNames =
-      summary.paid > 0
-        ? summary.paidList.map((p, i) => `${i + 1}. ${p.username ? `@${p.username}` : p.firstName}`).join("\n")
+    const verifiedNames =
+      summary.verified > 0
+        ? summary.verifiedList.map((p, i) => `${i + 1}. ${p.username ? `@${p.username}` : p.firstName}`).join("\n")
         : "(никто)";
+
+    const pendingNames =
+      summary.pending > 0
+        ? summary.pendingList.map((p, i) => `${summary.verified + i + 1}. ${p.username ? `@${p.username}` : p.firstName}`).join("\n")
+        : "(нет)";
 
     const unpaidNames =
       summary.unpaid > 0
         ? summary.unpaidList
-            .map((p, i) => `${summary.paid + i + 1}. ${p.username ? `@${p.username}` : p.firstName}`)
+            .map((p, i) => `${summary.verified + summary.pending + i + 1}. ${p.username ? `@${p.username}` : p.firstName}`)
             .join("\n")
         : "(все оплатили)";
 
-    const text =
+    let text =
       `💰 Оплата: ${event.title} (${dateStr})\n` +
       `Стоимость: ${event.price} ₽ × ${summary.total} человек = ${totalAmount} ₽\n\n` +
-      `✅ Оплатили (${summary.paid}):\n${paidNames}\n\n` +
-      `❌ Не оплатили (${summary.unpaid}):\n${unpaidNames}`;
+      `✅ Подтверждено (${summary.verified}):\n${verifiedNames}\n\n`;
+
+    if (summary.pending > 0) {
+      text += `⏳ Ожидает подтверждения (${summary.pending}):\n${pendingNames}\n\n`;
+    }
+
+    text += `❌ Не оплатили (${summary.unpaid}):\n${unpaidNames}`;
+
+    // Build keyboard with verify/reject for pending + remind button
+    const kb = new InlineKeyboard();
+    for (const p of summary.pendingList) {
+      const name = p.username ? `@${p.username}` : p.firstName;
+      kb.text(`✅ ${name}`, `verify_pay:${eventId}:${p.userId}`)
+        .text(`❌ ${name}`, `reject_pay:${eventId}:${p.userId}`)
+        .row();
+    }
+    if (summary.unpaid > 0) {
+      kb.text("🔔 Напомнить неоплатившим", `remind_pay:${eventId}`).row();
+    }
 
     await ctx.editMessageText(text, {
-      reply_markup: summary.unpaid > 0 ? paymentSummaryKeyboard(eventId) : undefined,
+      reply_markup: kb.inline_keyboard.length > 0 ? kb : undefined,
     });
     await ctx.answerCallbackQuery();
   });

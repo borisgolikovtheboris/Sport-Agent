@@ -74,7 +74,60 @@ export async function confirmPayment(
 }
 
 /**
- * Сводка оплат для организатора.
+ * Организатор подтверждает оплату участника.
+ */
+export async function verifyPayment(
+  eventId: string,
+  userId: string,
+  organizerId: string
+): Promise<{ success: boolean; message: string }> {
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return { success: false, message: "Событие не найдено." };
+  if (event.createdBy !== organizerId) return { success: false, message: "Только организатор может подтвердить оплату." };
+
+  const payment = await prisma.payment.findUnique({
+    where: { eventId_userId: { eventId, userId } },
+  });
+  if (!payment) return { success: false, message: "Запись оплаты не найдена." };
+  if (payment.status === "VERIFIED") return { success: false, message: "Оплата уже подтверждена." };
+  if (payment.status !== "SELF_CONFIRMED") return { success: false, message: "Участник ещё не отметил оплату." };
+
+  await prisma.payment.update({
+    where: { eventId_userId: { eventId, userId } },
+    data: { status: "VERIFIED", verifiedAt: new Date() },
+  });
+
+  return { success: true, message: "Оплата подтверждена ✅" };
+}
+
+/**
+ * Организатор отклоняет оплату участника.
+ */
+export async function rejectPayment(
+  eventId: string,
+  userId: string,
+  organizerId: string
+): Promise<{ success: boolean; message: string }> {
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return { success: false, message: "Событие не найдено." };
+  if (event.createdBy !== organizerId) return { success: false, message: "Только организатор может отклонить оплату." };
+
+  const payment = await prisma.payment.findUnique({
+    where: { eventId_userId: { eventId, userId } },
+  });
+  if (!payment) return { success: false, message: "Запись оплаты не найдена." };
+  if (payment.status === "REJECTED") return { success: false, message: "Оплата уже отклонена." };
+
+  await prisma.payment.update({
+    where: { eventId_userId: { eventId, userId } },
+    data: { status: "REJECTED" },
+  });
+
+  return { success: true, message: "Оплата отклонена ❌" };
+}
+
+/**
+ * Сводка оплат для организатора — три статуса.
  */
 export async function getPaymentSummary(eventId: string) {
   const event = await prisma.event.findUnique({
@@ -89,12 +142,21 @@ export async function getPaymentSummary(eventId: string) {
 
   const goingParticipants = event.participants.filter((p) => p.status === "GOING");
 
-  const paidPayments = event.payments.filter(
-    (p) => p.status === "SELF_CONFIRMED" || p.status === "VERIFIED"
-  );
-  const paidUserIds = new Set(paidPayments.map((p) => p.userId));
+  const verifiedPayments = event.payments.filter((p) => p.status === "VERIFIED");
+  const pendingPayments = event.payments.filter((p) => p.status === "SELF_CONFIRMED");
+  const paidUserIds = new Set([
+    ...verifiedPayments.map((p) => p.userId),
+    ...pendingPayments.map((p) => p.userId),
+  ]);
 
-  const paidList = paidPayments.map((p) => ({
+  const verifiedList = verifiedPayments.map((p) => ({
+    userId: p.userId,
+    firstName: p.firstName,
+    username: p.username ?? undefined,
+  }));
+
+  const pendingList = pendingPayments.map((p) => ({
+    userId: p.userId,
     firstName: p.firstName,
     username: p.username ?? undefined,
   }));
@@ -102,6 +164,7 @@ export async function getPaymentSummary(eventId: string) {
   const unpaidList = goingParticipants
     .filter((p) => !paidUserIds.has(p.userId))
     .map((p) => ({
+      userId: p.userId,
       firstName: p.firstName,
       username: p.username ?? undefined,
     }));
@@ -109,9 +172,11 @@ export async function getPaymentSummary(eventId: string) {
   return {
     event,
     total: goingParticipants.length,
-    paid: paidList.length,
+    verified: verifiedList.length,
+    pending: pendingList.length,
     unpaid: unpaidList.length,
-    paidList,
+    verifiedList,
+    pendingList,
     unpaidList,
   };
 }

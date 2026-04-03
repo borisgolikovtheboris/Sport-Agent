@@ -120,4 +120,5 @@ enum PaymentStatus {
   PENDING
   SELF_CONFIRMED
   VERIFIED
+  REJECTED
 }

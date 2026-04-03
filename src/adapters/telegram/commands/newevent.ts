@@ -2,8 +2,9 @@ import { Conversation } from "@grammyjs/conversations";
 import { InlineKeyboard } from "grammy";
 import { createEvent, saveMessageId } from "../../../services/eventService";
 import { getUserGroups } from "../../../services/groupService";
+import { createSeries, formatDaysOfWeek } from "../../../services/seriesService";
 import { parseDate } from "../../../utils/parseDate";
-import { formatEventCard, rsvpKeyboard } from "../formatters";
+import { formatEventCard, formatSeriesCard, rsvpKeyboard } from "../formatters";
 import { MyContext } from "../index";
 
 type MyConversation = Conversation<MyContext, MyContext>;
@@ -62,6 +63,24 @@ export async function newEventDMConversation(conversation: MyConversation, ctx: 
     }
   }
 
+  // ── Step 2.5: Recurrence ──
+  await ctx.reply("🔁 Повторять каждую неделю?\nНапиши /skip для разовой тренировки или день(и) недели, например: <code>вт чт</code>", {
+    parse_mode: "HTML",
+  });
+
+  let recurrenceDays: number[] | null = null;
+  const recText = await waitTextWithTimeout(conversation);
+  if (!recText) { await ctx.reply("⏰ Время вышло. Создание отменено."); return; }
+  if (recText === "/cancel") { await ctx.reply("❌ Создание отменено."); return; }
+  if (recText !== "/skip") {
+    recurrenceDays = parseDaysInput(recText);
+    if (!recurrenceDays || recurrenceDays.length === 0) {
+      // Not valid days — treat as single event
+      recurrenceDays = null;
+      await ctx.reply("Не распознал дни, создаю разовую тренировку.");
+    }
+  }
+
   // ── Step 3: Max participants ──
   await ctx.reply("👥 Ограничить количество мест?\nНапиши число или /skip");
 
@@ -96,30 +115,66 @@ export async function newEventDMConversation(conversation: MyConversation, ctx: 
     if (payText !== "/skip") paymentInfo = payText;
   }
 
-  // ── Create event ──
-  const event = await createEvent({
-    groupId: groupChatId,
-    title,
-    datetime,
-    maxParticipants,
-    price,
-    paymentInfo,
-    createdBy: userId,
-  });
-
-  // ── Publish card in the group ──
-  try {
-    const sent = await ctx.api.sendMessage(groupChatId, formatEventCard(event), {
-      reply_markup: rsvpKeyboard(event.id),
-      parse_mode: "HTML",
+  // ── Create event or series ──
+  if (recurrenceDays && recurrenceDays.length > 0) {
+    // Series
+    const timeStr = `${String(datetime.getHours()).padStart(2, "0")}:${String(datetime.getMinutes()).padStart(2, "0")}`;
+    const { series, events } = await createSeries({
+      groupId: groupChatId,
+      createdBy: userId,
+      title,
+      time: timeStr,
+      daysOfWeek: recurrenceDays,
+      maxParticipants,
+      price,
+      paymentInfo,
     });
-    await saveMessageId(event.id, sent.message_id);
-    await ctx.reply("✅ Тренировка опубликована в группе!");
-  } catch (err) {
-    console.error("Failed to publish event card to group:", err);
-    await ctx.reply(
-      "⚠️ Тренировка создана, но не удалось опубликовать в группе. Проверь, что бот ещё в группе."
-    );
+
+    try {
+      // Post series summary
+      await ctx.api.sendMessage(groupChatId, formatSeriesCard(series, events), {
+        parse_mode: "HTML",
+      });
+
+      // Post first event card
+      if (events.length > 0) {
+        const sent = await ctx.api.sendMessage(
+          groupChatId,
+          formatEventCard(events[0]),
+          { reply_markup: rsvpKeyboard(events[0].id), parse_mode: "HTML" }
+        );
+        await saveMessageId(events[0].id, sent.message_id);
+      }
+      await ctx.reply(`✅ Серия из ${events.length} тренировок опубликована в группе!`);
+    } catch (err) {
+      console.error("Failed to publish series to group:", err);
+      await ctx.reply("⚠️ Серия создана, но не удалось опубликовать в группе.");
+    }
+  } else {
+    // Single event
+    const event = await createEvent({
+      groupId: groupChatId,
+      title,
+      datetime,
+      maxParticipants,
+      price,
+      paymentInfo,
+      createdBy: userId,
+    });
+
+    try {
+      const sent = await ctx.api.sendMessage(groupChatId, formatEventCard(event), {
+        reply_markup: rsvpKeyboard(event.id),
+        parse_mode: "HTML",
+      });
+      await saveMessageId(event.id, sent.message_id);
+      await ctx.reply("✅ Тренировка опубликована в группе!");
+    } catch (err) {
+      console.error("Failed to publish event card to group:", err);
+      await ctx.reply(
+        "⚠️ Тренировка создана, но не удалось опубликовать в группе. Проверь, что бот ещё в группе."
+      );
+    }
   }
 }
 
@@ -306,4 +361,24 @@ async function waitTextWithTimeout(conversation: MyConversation): Promise<string
 
   const result = await Promise.race([msgPromise, timeoutPromise]);
   return result;
+}
+
+// ── Helper: parse day names from user input ──
+const DAY_MAP: Record<string, number> = {
+  "пн": 1, "пон": 1, "понедельник": 1,
+  "вт": 2, "вто": 2, "вторник": 2,
+  "ср": 3, "сре": 3, "среда": 3, "среду": 3,
+  "чт": 4, "чет": 4, "четверг": 4,
+  "пт": 5, "пят": 5, "пятница": 5, "пятницу": 5,
+  "сб": 6, "суб": 6, "суббота": 6, "субботу": 6,
+  "вс": 0, "вос": 0, "воскресенье": 0,
+};
+
+function parseDaysInput(text: string): number[] | null {
+  const words = text.toLowerCase().replace(/[,и]/g, " ").split(/\s+/).filter(Boolean);
+  const days = new Set<number>();
+  for (const w of words) {
+    if (DAY_MAP[w] !== undefined) days.add(DAY_MAP[w]);
+  }
+  return days.size > 0 ? [...days] : null;
 }

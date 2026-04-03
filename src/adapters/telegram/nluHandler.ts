@@ -1,8 +1,10 @@
 import { Composer } from "grammy";
+import { InlineKeyboard } from "grammy";
 import { NLU_CONFIG } from "../../nlu/nluConfig";
 import { parseIntent } from "../../nlu/intentParser";
 import { createEvent, saveMessageId, listActiveEvents } from "../../services/eventService";
-import { formatEventCard, formatEventsList, rsvpKeyboard } from "./formatters";
+import { createSeries, dayNamesToNumbers, formatDaysOfWeek } from "../../services/seriesService";
+import { formatEventCard, formatEventsList, formatSeriesCard, rsvpKeyboard } from "./formatters";
 import { parseDate } from "../../utils/parseDate";
 import { MyContext } from "./index";
 
@@ -20,6 +22,33 @@ export function createNluHandler(): Composer<MyContext> {
 
     const chatId = String(ctx.chat.id);
     const userId = String(ctx.from!.id);
+
+    // ── Check if we're waiting for series time ──
+    const pendingSeries = (ctx.session as any).pendingSeries;
+    if (pendingSeries && pendingSeries.chatId === chatId) {
+      const timeMatch = text.trim().match(/^(\d{1,2}):(\d{2})$/);
+      if (!timeMatch) {
+        await ctx.reply("⚠️ Укажи время в формате <code>ЧЧ:ММ</code>, например: <code>19:00</code>", {
+          parse_mode: "HTML",
+        });
+        return;
+      }
+      const time = text.trim();
+      const daysStr = formatDaysOfWeek(pendingSeries.daysOfWeek);
+
+      (ctx.session as any).pendingSeriesConfirm = { ...pendingSeries, time };
+      delete (ctx.session as any).pendingSeries;
+
+      const kb = new InlineKeyboard()
+        .text("Создать", `confirm_series`)
+        .text("Отмена", `cancel_series`);
+
+      await ctx.reply(
+        `📅 <b>${pendingSeries.title}</b> — каждый ${daysStr} в ${time}\nСоздаю на 3 месяца вперёд?`,
+        { parse_mode: "HTML", reply_markup: kb }
+      );
+      return;
+    }
 
     // ── Check if we're waiting for a date/time reply ──
     const pending = (ctx.session as any).pendingEvent;
@@ -96,6 +125,47 @@ export function createNluHandler(): Composer<MyContext> {
       const { entities } = result;
       const title = entities.title ?? "Тренировка";
 
+      // ── Recurrence detected → create series ──
+      if (entities.recurrence && entities.recurrence.days?.length > 0) {
+        const daysOfWeek = dayNamesToNumbers(entities.recurrence.days);
+        const time = entities.recurrence.time || entities.time || null;
+
+        if (!time) {
+          // Need time
+          (ctx.session as any).pendingSeries = {
+            chatId, title, daysOfWeek,
+            maxParticipants: entities.maxParticipants ?? null,
+            price: entities.price ?? null,
+            createdBy: userId,
+          };
+          await ctx.reply(
+            `📅 <b>${title}</b> (${formatDaysOfWeek(daysOfWeek)})\n⏰ Во сколько? (например: <code>19:00</code>)`,
+            { parse_mode: "HTML" }
+          );
+          return;
+        }
+
+        // Confirm series creation
+        const daysStr = formatDaysOfWeek(daysOfWeek);
+        (ctx.session as any).pendingSeriesConfirm = {
+          chatId, title, daysOfWeek, time,
+          maxParticipants: entities.maxParticipants ?? null,
+          price: entities.price ?? null,
+          createdBy: userId,
+        };
+
+        const kb = new InlineKeyboard()
+          .text("Создать", `confirm_series`)
+          .text("Отмена", `cancel_series`);
+
+        await ctx.reply(
+          `📅 <b>${title}</b> — каждый ${daysStr} в ${time}\nСоздаю на 3 месяца вперёд?`,
+          { parse_mode: "HTML", reply_markup: kb }
+        );
+        return;
+      }
+
+      // ── Single event ──
       // Try to build datetime
       let datetime: Date | null = null;
       if (entities.date && entities.time) {

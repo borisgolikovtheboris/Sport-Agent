@@ -1,7 +1,7 @@
 import { Api, RawApi } from "grammy";
 import { getDueReminders, markReminderSent, PendingReminder } from "./services/reminderService";
 import { formatEventCard, rsvpKeyboard, paymentKeyboard } from "./adapters/telegram/formatters";
-import { getEvent } from "./services/eventService";
+import { getEvent, saveMessageId } from "./services/eventService";
 
 const INTERVAL_MS = 60 * 1000; // 60 seconds
 
@@ -18,6 +18,8 @@ export function startScheduler(api: Api<RawApi>) {
             await sendSignupReminder(api, r);
           } else if (r.type === "PAYMENT_AFTER") {
             await sendPaymentReminder(api, r);
+          } else if (r.type === "SERIES_PUBLISH_48H") {
+            await publishSeriesEvent(api, r);
           }
         } catch (err) {
           console.error(`Failed to send reminder ${r.id}:`, err);
@@ -41,6 +43,23 @@ async function sendSignupReminder(api: Api<RawApi>, r: PendingReminder) {
     parse_mode: "HTML",
   });
 
+  await markReminderSent(r.id, sent.message_id);
+}
+
+async function publishSeriesEvent(api: Api<RawApi>, r: PendingReminder) {
+  const event = await getEvent(r.eventId);
+  if (!event || event.status !== "ACTIVE") {
+    await markReminderSent(r.id);
+    return;
+  }
+
+  const card = formatEventCard(event);
+  const sent = await api.sendMessage(event.groupId, card, {
+    reply_markup: rsvpKeyboard(event.id),
+    parse_mode: "HTML",
+  });
+
+  await saveMessageId(event.id, sent.message_id);
   await markReminderSent(r.id, sent.message_id);
 }
 

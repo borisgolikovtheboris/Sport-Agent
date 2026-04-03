@@ -1,4 +1,4 @@
-import { Event, Participant } from "@prisma/client";
+import { Event, EventSeries, Participant } from "@prisma/client";
 import { InlineKeyboard } from "grammy";
 
 type EventWithParticipants = Event & { participants: Participant[] };
@@ -84,6 +84,43 @@ export function paymentKeyboard(eventId: string): InlineKeyboard {
 
 export function paymentSummaryKeyboard(eventId: string): InlineKeyboard {
   return new InlineKeyboard().text("🔔 Напомнить неоплатившим", `remind_pay:${eventId}`);
+}
+
+const DAYS_RU_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+
+export function formatSeriesCard(
+  series: EventSeries,
+  events: (Event & { participants: Participant[] })[]
+): string {
+  const daysStr = series.daysOfWeek.sort().map((d) => DAYS_RU_SHORT[d]).join("/");
+  const lines = [
+    `📅 <b>Создана серия тренировок!</b>`,
+    ``,
+    `🏃 ${escapeHtml(series.title)} — каждый ${daysStr} в ${series.time}`,
+  ];
+
+  if (series.maxParticipants) lines.push(`👥 Мест: ${series.maxParticipants}`);
+  if (series.price) lines.push(`💰 ${series.price} ₽`);
+
+  lines.push("", "Ближайшие:");
+  const preview = events.slice(0, 3);
+  for (const e of preview) {
+    lines.push(`• ${formatDateRu(e.datetime)}`);
+  }
+  if (events.length > 3) {
+    lines.push(`... и ещё ${events.length - 3} тренировок`);
+  }
+
+  return lines.join("\n");
+}
+
+export function cancelSeriesKeyboard(eventId: string, seriesId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("Только эту", `cancel_confirm:${eventId}`)
+    .row()
+    .text("Все будущие", `cancel_series_all:${seriesId}`)
+    .row()
+    .text("← Оставить", `cancel_abort:${eventId}`);
 }
 
 export function cancelConfirmKeyboard(eventId: string): InlineKeyboard {

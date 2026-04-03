@@ -1,6 +1,9 @@
 import { Bot, Context, session, SessionFlavor } from "grammy";
 import { conversations, createConversation, ConversationFlavor } from "@grammyjs/conversations";
 import { registerGroup } from "../../services/groupService";
+import { createSeries, formatDaysOfWeek } from "../../services/seriesService";
+import { saveMessageId } from "../../services/eventService";
+import { formatSeriesCard, formatEventCard, rsvpKeyboard } from "./formatters";
 import {
   newEventConversation,
   newEventDMConversation,
@@ -98,6 +101,46 @@ export function createTelegramBot(token: string) {
     await ctx.answerCallbackQuery();
     (ctx.session as any).dmGroupChatId = groupChatId;
     await ctx.conversation.enter("newEventDM");
+  });
+
+  // ── Callback: confirm series creation from NLU ──
+  bot.callbackQuery("confirm_series", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const data = (ctx.session as any).pendingSeriesConfirm;
+    if (!data) {
+      await ctx.editMessageText("⚠️ Данные серии не найдены. Попробуй ещё раз.");
+      return;
+    }
+    delete (ctx.session as any).pendingSeriesConfirm;
+
+    const { series, events } = await createSeries({
+      groupId: data.chatId,
+      createdBy: data.createdBy,
+      title: data.title,
+      time: data.time,
+      daysOfWeek: data.daysOfWeek,
+      maxParticipants: data.maxParticipants,
+      price: data.price,
+    });
+
+    // Post series summary
+    await ctx.editMessageText(formatSeriesCard(series, events), { parse_mode: "HTML" });
+
+    // Post first event card with RSVP buttons
+    if (events.length > 0) {
+      const sent = await ctx.api.sendMessage(
+        data.chatId,
+        formatEventCard(events[0]),
+        { reply_markup: rsvpKeyboard(events[0].id), parse_mode: "HTML" }
+      );
+      await saveMessageId(events[0].id, sent.message_id);
+    }
+  });
+
+  bot.callbackQuery("cancel_series", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    delete (ctx.session as any).pendingSeriesConfirm;
+    await ctx.editMessageText("❌ Создание серии отменено.");
   });
 
   // ── Handle DM messages when pending new event from group ──

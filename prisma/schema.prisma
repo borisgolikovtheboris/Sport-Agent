@@ -8,11 +8,30 @@ datasource db {
 }
 
 model Group {
-  chatId  String   @id
+  chatId  String        @id
   title   String
   adminId String
-  addedAt DateTime @default(now())
+  addedAt DateTime      @default(now())
   events  Event[]
+  series  EventSeries[]
+}
+
+model EventSeries {
+  id              String    @id @default(uuid())
+  groupId         String
+  createdBy       String
+  title           String
+  time            String    // HH:MM
+  daysOfWeek      Int[]     // 0=вс, 1=пн, 2=вт, 3=ср, 4=чт, 5=пт, 6=сб
+  maxParticipants Int?
+  price           Int?
+  paymentInfo     String?
+  startsFrom      DateTime
+  endsAt          DateTime
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  events          Event[]
+  group           Group     @relation(fields: [groupId], references: [chatId])
 }
 
 model Event {
@@ -28,7 +47,9 @@ model Event {
   createdBy           String
   status              EventStatus   @default(ACTIVE)
   createdAt           DateTime      @default(now())
+  seriesId            String?
   group               Group         @relation(fields: [groupId], references: [chatId])
+  series              EventSeries?  @relation(fields: [seriesId], references: [id])
   participants        Participant[]
   payments            Payment[]
   reminders           Reminder[]
@@ -86,6 +107,7 @@ enum ParticipantStatus {
 enum ReminderType {
   SIGNUP_24H
   PAYMENT_AFTER
+  SERIES_PUBLISH_48H
 }
 
 enum ReminderStatus {

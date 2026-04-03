@@ -4,7 +4,7 @@ import { createPaymentRecords } from "./paymentService";
 export interface PendingReminder {
   id: string;
   eventId: string;
-  type: "SIGNUP_24H" | "PAYMENT_AFTER";
+  type: "SIGNUP_24H" | "PAYMENT_AFTER" | "SERIES_PUBLISH_48H";
   event: {
     id: string;
     groupId: string;

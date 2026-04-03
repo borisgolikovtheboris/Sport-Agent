@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { joinEvent, leaveEvent } from "../../../services/participantService";
 import { cancelEvent } from "../../../services/eventService";
+import { cancelSeries } from "../../../services/seriesService";
 import { getReminderMessageIds } from "../../../services/reminderService";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
 import { MyContext } from "../index";
@@ -109,6 +110,23 @@ export function registerRsvp(bot: Bot<MyContext>) {
       result.event.groupId,
       `❌ Тренировка «${result.event.title}» отменена организатором.`
     );
+  });
+
+  // ── Cancel all future in series ──
+  bot.callbackQuery(/^cancel_series_all:(.+)$/, async (ctx) => {
+    const seriesId = ctx.match[1];
+    const userId = String(ctx.from.id);
+    const result = await cancelSeries(seriesId, userId);
+
+    if (!result.success) {
+      await ctx.answerCallbackQuery("⚠️ Не удалось отменить серию.");
+      return;
+    }
+
+    await ctx.editMessageText(
+      `✅ Серия отменена. Отменено тренировок: ${result.cancelledCount}`
+    );
+    await ctx.answerCallbackQuery("Серия отменена.");
   });
 
   // ── Cancel abort ──

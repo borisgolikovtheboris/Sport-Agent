@@ -1,6 +1,6 @@
 import { Context } from "grammy";
 import { listActiveEvents } from "../../../services/eventService";
-import { cancelConfirmKeyboard } from "../formatters";
+import { cancelConfirmKeyboard, cancelSeriesKeyboard } from "../formatters";
 
 export async function cancelCommand(ctx: Context) {
   if (ctx.chat?.type === "private") {
@@ -24,8 +24,16 @@ export async function cancelCommand(ctx: Context) {
       day: "numeric",
       month: "short",
     });
-    await ctx.reply(`Отменить «${event.title}» (${dateStr})?`, {
-      reply_markup: cancelConfirmKeyboard(event.id),
-    });
+
+    if ((event as any).seriesId) {
+      await ctx.reply(
+        `Это тренировка из серии. Отменить «${event.title}» (${dateStr})?`,
+        { reply_markup: cancelSeriesKeyboard(event.id, (event as any).seriesId) }
+      );
+    } else {
+      await ctx.reply(`Отменить «${event.title}» (${dateStr})?`, {
+        reply_markup: cancelConfirmKeyboard(event.id),
+      });
+    }
   }
 }

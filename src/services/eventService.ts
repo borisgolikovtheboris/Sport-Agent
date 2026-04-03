@@ -78,6 +78,14 @@ export async function listActiveEvents(groupId: string) {
   return { events };
 }
 
+export async function getEventWithSeries(eventId: string) {
+  return prisma.event.findUnique({
+    where: { id: eventId },
+    include: { participants: true },
+    // seriesId is available on the result directly
+  });
+}
+
 export async function cancelEvent(eventId: string, userId: string) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },

@@ -24,9 +24,26 @@ export function createNluHandler(): Composer<MyContext> {
     // ── Check if we're waiting for a date/time reply ──
     const pending = (ctx.session as any).pendingEvent;
     if (pending && pending.chatId === chatId) {
-      const datetime = parseDate(text.trim());
+      // Try strict format first, then fall back to LLM
+      let datetime = parseDate(text.trim());
+
       if (!datetime) {
-        await ctx.reply("⚠️ Не понял формат. Пример: <code>15.04 19:00</code>", {
+        // Ask LLM to interpret the date/time
+        const nluResult = await parseIntent(text);
+        if (nluResult.entities.date && nluResult.entities.time) {
+          datetime = new Date(`${nluResult.entities.date}T${nluResult.entities.time}:00`);
+          if (isNaN(datetime.getTime())) datetime = null;
+        } else if (nluResult.entities.date) {
+          // Date without time — ask for time
+          await ctx.reply("⏰ А во сколько? (например: <code>19:00</code>)", {
+            parse_mode: "HTML",
+          });
+          return;
+        }
+      }
+
+      if (!datetime) {
+        await ctx.reply("⚠️ Не понял. Напиши дату и время, например: <code>15.04 19:00</code> или «в пятницу в 19»", {
           parse_mode: "HTML",
         });
         return;

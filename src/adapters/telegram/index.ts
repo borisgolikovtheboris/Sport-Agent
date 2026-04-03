@@ -84,7 +84,7 @@ export function createTelegramBot(token: string) {
 
   // ── Error handler ──
   bot.catch((err) => {
-    console.error("Bot error:", err.message);
+    console.error("Bot error:", err.error ?? err.message, err.stack);
   });
 
   // ── Set bot commands in Telegram menu ──

@@ -20,10 +20,16 @@ export function createNluHandler(): Composer<MyContext> {
     // Check trigger words
     const lower = text.toLowerCase();
     const triggered = NLU_CONFIG.triggerWords.some((w) => lower.includes(w));
-    if (!triggered) return next();
+    if (!triggered) {
+      console.log("NLU: no trigger words in:", text.slice(0, 50));
+      return next();
+    }
+
+    console.log("NLU: triggered on:", text.slice(0, 80));
 
     // Parse intent via LLM
     const result = await parseIntent(text);
+    console.log("NLU result:", JSON.stringify(result, null, 2));
 
     if (result.intent === "unknown") return next();
 

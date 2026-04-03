@@ -1,8 +1,22 @@
 import { Bot } from "grammy";
 import { joinEvent, leaveEvent } from "../../../services/participantService";
 import { cancelEvent } from "../../../services/eventService";
+import { getReminderMessageIds } from "../../../services/reminderService";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
 import { MyContext } from "../index";
+
+async function updateReminderMessages(bot: Bot<MyContext>, eventId: string, groupId: string, cardText: string) {
+  const reminderMsgIds = await getReminderMessageIds(eventId);
+  for (const msgId of reminderMsgIds) {
+    try {
+      const reminderText = `⏰ Напоминание!\n\n${cardText}\n\nЕщё не записался? Жми кнопку ниже 👇`;
+      await bot.api.editMessageText(groupId, msgId, reminderText, {
+        reply_markup: rsvpKeyboard(eventId),
+        parse_mode: "HTML",
+      });
+    } catch (_) {}
+  }
+}
 
 export function registerRsvp(bot: Bot<MyContext>) {
   // ── ✅ GOING ──
@@ -24,13 +38,15 @@ export function registerRsvp(bot: Bot<MyContext>) {
       return;
     }
 
+    const cardText = formatEventCard(result.event);
     try {
-      await ctx.editMessageText(formatEventCard(result.event), {
+      await ctx.editMessageText(cardText, {
         reply_markup: rsvpKeyboard(eventId),
         parse_mode: "HTML",
       });
     } catch (_) {}
 
+    await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
     await ctx.answerCallbackQuery("Записал! Увидимся на тренировке 🎉");
   });
 
@@ -48,13 +64,15 @@ export function registerRsvp(bot: Bot<MyContext>) {
       return;
     }
 
+    const cardText = formatEventCard(result.event);
     try {
-      await ctx.editMessageText(formatEventCard(result.event), {
+      await ctx.editMessageText(cardText, {
         reply_markup: rsvpKeyboard(eventId),
         parse_mode: "HTML",
       });
     } catch (_) {}
 
+    await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
     await ctx.answerCallbackQuery("Понял, убрал тебя из списка.");
   });
 

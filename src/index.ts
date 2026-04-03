@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { createTelegramBot } from "./adapters/telegram";
+import { startScheduler } from "./scheduler";
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -11,5 +12,6 @@ const bot = createTelegramBot(token);
 bot.start({
   onStart: (info) => {
     console.log(`✅ SportBot started as @${info.username}`);
+    startScheduler(bot.api);
   },
 });

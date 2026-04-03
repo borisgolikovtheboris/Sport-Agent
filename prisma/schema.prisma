@@ -16,17 +16,22 @@ model Group {
 }
 
 model Event {
-  id              String        @id @default(uuid())
-  groupId         String
-  messageId       Int?
-  title           String
-  datetime        DateTime
-  maxParticipants Int?
-  createdBy       String
-  status          EventStatus   @default(ACTIVE)
-  createdAt       DateTime      @default(now())
-  group           Group         @relation(fields: [groupId], references: [chatId])
-  participants    Participant[]
+  id                  String        @id @default(uuid())
+  groupId             String
+  messageId           Int?
+  title               String
+  datetime            DateTime
+  maxParticipants     Int?
+  price               Int?
+  paymentInfo         String?
+  lastPaymentReminder DateTime?
+  createdBy           String
+  status              EventStatus   @default(ACTIVE)
+  createdAt           DateTime      @default(now())
+  group               Group         @relation(fields: [groupId], references: [chatId])
+  participants        Participant[]
+  payments            Payment[]
+  reminders           Reminder[]
 }
 
 model Participant {
@@ -42,6 +47,31 @@ model Participant {
   @@unique([eventId, userId])
 }
 
+model Reminder {
+  id                String         @id @default(uuid())
+  eventId           String
+  type              ReminderType
+  scheduledFor      DateTime
+  sentAt            DateTime?
+  status            ReminderStatus @default(PENDING)
+  reminderMessageId Int?
+  event             Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  eventId     String
+  userId      String
+  username    String?
+  firstName   String
+  status      PaymentStatus @default(PENDING)
+  confirmedAt DateTime?
+  verifiedAt  DateTime?
+  event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
 enum EventStatus {
   ACTIVE
   CANCELLED
@@ -51,4 +81,21 @@ enum EventStatus {
 enum ParticipantStatus {
   GOING
   NOT_GOING
+}
+
+enum ReminderType {
+  SIGNUP_24H
+  PAYMENT_AFTER
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  SKIPPED
+}
+
+enum PaymentStatus {
+  PENDING
+  SELF_CONFIRMED
+  VERIFIED
 }

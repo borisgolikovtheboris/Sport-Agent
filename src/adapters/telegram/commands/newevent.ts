@@ -70,12 +70,55 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
     return;
   }
 
+  // ── Step 4: Price ──
+  await ctx.reply(
+    "💰 Укажи стоимость с человека (в рублях) или /skip если бесплатно:",
+    { parse_mode: "HTML" }
+  );
+
+  let price: number | null = null;
+  const priceMsg = await conversation.waitFor("message:text");
+  const priceText = priceMsg.message.text.trim();
+  if (priceText === "/cancel") {
+    await ctx.reply("❌ Создание отменено.");
+    return;
+  }
+  if (priceText !== "/skip") {
+    const parsed = parseInt(priceText, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      price = parsed;
+    } else {
+      await ctx.reply("⚠️ Не понял, создаю бесплатную тренировку.");
+    }
+  }
+
+  // ── Step 5: Payment info (only if price is set) ──
+  let paymentInfo: string | null = null;
+  if (price) {
+    await ctx.reply(
+      "💳 Куда переводить? Напиши реквизиты (например: <code>Сбер 1234 5678 9012 3456</code> или <code>Тинькофф @nickname</code>):",
+      { parse_mode: "HTML" }
+    );
+
+    const payInfoMsg = await conversation.waitFor("message:text");
+    const payInfoText = payInfoMsg.message.text.trim();
+    if (payInfoText === "/cancel") {
+      await ctx.reply("❌ Создание отменено.");
+      return;
+    }
+    if (payInfoText !== "/skip") {
+      paymentInfo = payInfoText;
+    }
+  }
+
   // ── Save via service ──
   const event = await createEvent({
     groupId: chatId,
     title,
     datetime,
     maxParticipants,
+    price,
+    paymentInfo,
     createdBy: userId,
   });
 

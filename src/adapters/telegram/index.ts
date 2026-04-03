@@ -5,6 +5,8 @@ import { newEventConversation } from "./commands/newevent";
 import { eventsCommand } from "./commands/events";
 import { cancelCommand } from "./commands/cancel";
 import { registerRsvp } from "./callbacks/rsvp";
+import { registerPaymentCallbacks } from "./callbacks/payment";
+import { paymentsCommand } from "./commands/payments";
 
 export type MyContext = Context & SessionFlavor<{}> & ConversationFlavor<Context & SessionFlavor<{}>>;
 
@@ -54,6 +56,7 @@ export function createTelegramBot(token: string) {
 
   bot.command("events", eventsCommand);
   bot.command("cancel", cancelCommand);
+  bot.command("payments", paymentsCommand);
 
   bot.command("help", async (ctx) => {
     await ctx.reply(
@@ -61,14 +64,16 @@ export function createTelegramBot(token: string) {
         `/newevent — создать новую тренировку\n` +
         `/events — список ближайших тренировок\n` +
         `/cancel — отменить свою тренировку\n` +
+        `/payments — сводка оплат (для организатора)\n` +
         `/help — эта справка\n\n` +
         `<i>Кнопки ✅ Иду и ❌ Не иду появляются под карточкой тренировки</i>`,
       { parse_mode: "HTML" }
     );
   });
 
-  // ── RSVP & cancel callbacks ──
+  // ── Callbacks ──
   registerRsvp(bot);
+  registerPaymentCallbacks(bot);
 
   // ── Error handler ──
   bot.catch((err) => {
@@ -80,6 +85,7 @@ export function createTelegramBot(token: string) {
     { command: "newevent", description: "Создать тренировку" },
     { command: "events", description: "Список тренировок" },
     { command: "cancel", description: "Отменить тренировку" },
+    { command: "payments", description: "Сводка оплат" },
     { command: "help", description: "Помощь" },
   ]);
 

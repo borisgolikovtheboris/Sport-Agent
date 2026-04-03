@@ -5,21 +5,50 @@ export interface CreateEventInput {
   title: string;
   datetime: Date;
   maxParticipants: number | null;
+  price: number | null;
+  paymentInfo: string | null;
   createdBy: string;
 }
 
 export async function createEvent(input: CreateEventInput) {
-  return prisma.event.create({
+  const event = await prisma.event.create({
     data: {
       groupId: input.groupId,
       title: input.title,
       datetime: input.datetime,
       maxParticipants: input.maxParticipants,
+      price: input.price,
+      paymentInfo: input.paymentInfo,
       createdBy: input.createdBy,
       status: "ACTIVE",
     },
     include: { participants: true },
   });
+
+  // Create SIGNUP_24H reminder if event is more than 24h away
+  const msUntilEvent = input.datetime.getTime() - Date.now();
+  if (msUntilEvent > 24 * 60 * 60 * 1000) {
+    await prisma.reminder.create({
+      data: {
+        eventId: event.id,
+        type: "SIGNUP_24H",
+        scheduledFor: new Date(input.datetime.getTime() - 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  // Create PAYMENT_AFTER reminder if event has a price
+  if (input.price) {
+    await prisma.reminder.create({
+      data: {
+        eventId: event.id,
+        type: "PAYMENT_AFTER",
+        scheduledFor: new Date(input.datetime.getTime() + 60 * 60 * 1000),
+      },
+    });
+  }
+
+  return event;
 }
 
 export async function saveMessageId(eventId: string, messageId: number) {
@@ -62,6 +91,12 @@ export async function cancelEvent(eventId: string, userId: string) {
   await prisma.event.update({
     where: { id: eventId },
     data: { status: "CANCELLED" },
+  });
+
+  // Skip all pending reminders for this event
+  await prisma.reminder.updateMany({
+    where: { eventId, status: "PENDING" },
+    data: { status: "SKIPPED" },
   });
 
   return { ok: true as const, event };

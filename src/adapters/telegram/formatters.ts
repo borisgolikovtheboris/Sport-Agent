@@ -41,7 +41,12 @@ export function formatEventCard(event: EventWithParticipants): string {
       ? `❌ <s>${escapeHtml(event.title)}</s> ОТМЕНЕНО`
       : `🏃 <b>${escapeHtml(event.title)}</b>`;
 
-  return [titleLine, `📅 ${formatDateRu(event.datetime)}`, spotsLine, "", "Идут:", participantList].join("\n");
+  const lines = [titleLine, `📅 ${formatDateRu(event.datetime)}`, spotsLine];
+  if (event.price) {
+    lines.push(`💰 ${event.price} ₽ с человека`);
+  }
+  lines.push("", "Идут:", participantList);
+  return lines.join("\n");
 }
 
 export function formatEventsList(events: EventWithParticipants[]): string {
@@ -71,6 +76,14 @@ export function rsvpKeyboard(eventId: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("✅ Иду", `go:${eventId}`)
     .text("❌ Не иду", `notgo:${eventId}`);
+}
+
+export function paymentKeyboard(eventId: string): InlineKeyboard {
+  return new InlineKeyboard().text("💳 Оплатил", `paid:${eventId}`);
+}
+
+export function paymentSummaryKeyboard(eventId: string): InlineKeyboard {
+  return new InlineKeyboard().text("🔔 Напомнить неоплатившим", `remind_pay:${eventId}`);
 }
 
 export function cancelConfirmKeyboard(eventId: string): InlineKeyboard {

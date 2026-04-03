@@ -1,8 +1,7 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm install"
+builder = "nixpacks"
 
 [deploy]
-startCommand = "npx prisma generate && npm run db:push && npm start"
-restartPolicyType = "ON_FAILURE"
+startCommand = "npm run db:migrate && npm start"
+restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

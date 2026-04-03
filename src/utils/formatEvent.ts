@@ -1,56 +1,38 @@
-import { EventData, ParticipantData } from '../types';
+import { Event, Participant } from "@prisma/client";
 
-const DAYS_RU = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
-const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-                   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+type EventWithParticipants = Event & { participants: Participant[] };
 
-function formatDateRu(date: Date): string {
-  const day = date.getDate();
-  const month = MONTHS_RU[date.getMonth()];
-  const weekday = DAYS_RU[date.getDay()];
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${day} ${month}, ${weekday} · ${hours}:${minutes}`;
-}
+/**
+ * Платформо-независимое форматирование события в plain text.
+ * Используется будущими адаптерами (REST, WhatsApp) и для логов.
+ */
+export function formatEventPlain(event: EventWithParticipants): string {
+  const going = event.participants.filter((p) => p.status === "GOING");
 
-function formatParticipantName(p: ParticipantData): string {
-  return p.username ? `@${p.username}` : p.firstName;
-}
+  const dateStr = event.datetime.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    weekday: "short",
+  });
+  const timeStr = event.datetime.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
-export function formatEventCard(event: EventData): string {
-  const going = event.participants.filter((p: ParticipantData) => p.status === 'GOING');
-  const spotsTotal = event.maxParticipants;
-  const spotsUsed = going.length;
+  const spotsLine = event.maxParticipants
+    ? `Мест: ${going.length} / ${event.maxParticipants}`
+    : `Участников: ${going.length}`;
 
-  const spotsLine = spotsTotal
-    ? `👥 Участников: ${spotsUsed} / ${spotsTotal}`
-    : `👥 Участников: ${spotsUsed}`;
-
-  const participantList = going.length > 0
-    ? going.map((p: ParticipantData, i: number) => `${i + 1}. ${formatParticipantName(p)}`).join('\n')
-    : '(пока никого)';
-
-  const isCancelled = event.status === 'CANCELLED';
-  const titleLine = isCancelled
-    ? `❌ ${event.title} — ОТМЕНЕНО`
-    : `🏃 ${event.title}`;
+  const participants =
+    going.length === 0
+      ? "(пока никого)"
+      : going.map((p, i) => `${i + 1}. ${p.firstName}`).join("\n");
 
   return [
-    titleLine,
-    `📅 ${formatDateRu(event.datetime)}`,
+    event.title,
+    `${dateStr} · ${timeStr}`,
     spotsLine,
-    '',
-    'Идут:',
-    participantList,
-  ].join('\n');
-}
-
-export function formatEventShort(event: EventData, index: number): string {
-  const going = event.participants.filter((p: ParticipantData) => p.status === 'GOING').length;
-  const spots = event.maxParticipants ? `${going}/${event.maxParticipants}` : `${going}`;
-  const hours = String(event.datetime.getHours()).padStart(2, '0');
-  const minutes = String(event.datetime.getMinutes()).padStart(2, '0');
-  const day = event.datetime.getDate();
-  const month = MONTHS_RU[event.datetime.getMonth()];
-  return `${index}. 🏃 ${event.title}\n   📅 ${day} ${month} · ${hours}:${minutes} · ${spots} чел.`;
+    "",
+    `Идут:\n${participants}`,
+  ].join("\n");
 }

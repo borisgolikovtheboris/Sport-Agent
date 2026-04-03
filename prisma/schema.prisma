@@ -7,19 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model BotState {
-  id        String    @id
-  step      String
-  title     String?
-  datetime  DateTime?
-  updatedAt DateTime  @updatedAt
-}
-
 model Group {
   chatId  String   @id
   title   String
   adminId String
   addedAt DateTime @default(now())
+  events  Event[]
 }
 
 model Event {
@@ -32,6 +25,7 @@ model Event {
   createdBy       String
   status          EventStatus   @default(ACTIVE)
   createdAt       DateTime      @default(now())
+  group           Group         @relation(fields: [groupId], references: [chatId])
   participants    Participant[]
 }
 
@@ -43,7 +37,7 @@ model Participant {
   firstName String
   status    ParticipantStatus @default(GOING)
   joinedAt  DateTime          @default(now())
-  event     Event             @relation(fields: [eventId], references: [id])
+  event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, userId])
 }

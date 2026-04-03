@@ -1,20 +1,29 @@
 import { Bot, Context, session, SessionFlavor } from "grammy";
 import { conversations, createConversation, ConversationFlavor } from "@grammyjs/conversations";
 import { registerGroup } from "../../services/groupService";
-import { newEventConversation } from "./commands/newevent";
+import {
+  newEventConversation,
+  newEventDMConversation,
+  neweventCommand,
+} from "./commands/newevent";
+import { startCommand } from "./commands/start";
 import { eventsCommand } from "./commands/events";
 import { cancelCommand } from "./commands/cancel";
 import { registerRsvp } from "./callbacks/rsvp";
 import { registerPaymentCallbacks } from "./callbacks/payment";
 import { paymentsCommand } from "./commands/payments";
-import { nluConversation } from "./commands/nluConversation";
 import { createNluHandler } from "./nluHandler";
 
 export interface SessionData {
   nluData?: any;
+  dmGroupChatId?: string;
+  dmPendingNewEvent?: boolean;
+  pendingEvent?: any;
 }
 
-export type MyContext = Context & SessionFlavor<SessionData> & ConversationFlavor<Context & SessionFlavor<SessionData>>;
+export type MyContext = Context &
+  SessionFlavor<SessionData> &
+  ConversationFlavor<Context & SessionFlavor<SessionData>>;
 
 export function createTelegramBot(token: string) {
   const bot = new Bot<MyContext>(token);
@@ -23,7 +32,7 @@ export function createTelegramBot(token: string) {
   bot.use(session({ initial: (): SessionData => ({}) }));
   bot.use(conversations());
   bot.use(createConversation(newEventConversation, "newEvent"));
-  // nluConversation removed — NLU now handles missing fields inline via session
+  bot.use(createConversation(newEventDMConversation, "newEventDM"));
 
   // ── Register group on bot join ──
   bot.on("my_chat_member", async (ctx) => {
@@ -53,14 +62,8 @@ export function createTelegramBot(token: string) {
   });
 
   // ── Commands ──
-  bot.command("newevent", async (ctx) => {
-    if (ctx.chat?.type === "private") {
-      await ctx.reply("⚠️ Эта команда работает только в групповых чатах.");
-      return;
-    }
-    await ctx.conversation.enter("newEvent");
-  });
-
+  bot.command("start", startCommand);
+  bot.command("newevent", neweventCommand);
   bot.command("events", eventsCommand);
   bot.command("cancel", cancelCommand);
   bot.command("payments", paymentsCommand);
@@ -82,6 +85,32 @@ export function createTelegramBot(token: string) {
   // ── Callbacks ──
   registerRsvp(bot);
   registerPaymentCallbacks(bot);
+
+  // ── Callback: "💬 Здесь" — start group conversation ──
+  bot.callbackQuery(/^newevent_here:(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("newEvent");
+  });
+
+  // ── Callback: group selection from DM ──
+  bot.callbackQuery(/^selectgroup:(.+)$/, async (ctx) => {
+    const groupChatId = ctx.match![1];
+    await ctx.answerCallbackQuery();
+    (ctx.session as any).dmGroupChatId = groupChatId;
+    await ctx.conversation.enter("newEventDM");
+  });
+
+  // ── Handle DM messages when pending new event from group ──
+  bot.on("message:text", async (ctx, next) => {
+    if (ctx.chat.type !== "private") return next();
+    const session = ctx.session as any;
+    if (session.dmPendingNewEvent && session.dmGroupChatId) {
+      delete session.dmPendingNewEvent;
+      await ctx.conversation.enter("newEventDM");
+      return;
+    }
+    return next();
+  });
 
   // ── NLU handler (after all commands and callbacks) ──
   bot.use(createNluHandler());

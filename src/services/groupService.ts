@@ -21,3 +21,17 @@ export async function registerGroup(input: RegisterGroupInput) {
 export async function markGroupInactive(chatId: string) {
   await prisma.group.delete({ where: { chatId } }).catch(() => {});
 }
+
+export async function getUserGroups(userId: string) {
+  // Find groups where user created events or is admin
+  const groups = await prisma.group.findMany({
+    where: {
+      OR: [
+        { adminId: userId },
+        { events: { some: { participants: { some: { userId } } } } },
+        { events: { some: { createdBy: userId } } },
+      ],
+    },
+  });
+  return groups;
+}

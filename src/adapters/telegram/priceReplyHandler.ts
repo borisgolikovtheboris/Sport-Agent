@@ -6,34 +6,26 @@ import { MyContext } from "./index";
 
 const BANK_ALIASES: Record<string, string> = {
   "тбанк": "Т-Банк", "тинькофф": "Т-Банк", "tinkoff": "Т-Банк", "т-банк": "Т-Банк",
-  "тинек": "Т-Банк", "тиньк": "Т-Банк",
+  "тинек": "Т-Банк", "тиньк": "Т-Банк", "тинькоф": "Т-Банк",
   "сбер": "Сбер", "сбербанк": "Сбер", "sber": "Сбер",
   "альфа": "Альфа-Банк", "альфабанк": "Альфа-Банк", "alfa": "Альфа-Банк",
   "втб": "ВТБ", "vtb": "ВТБ",
-  "райф": "Райффайзен", "райффайзен": "Райффайзен", "raif": "Райффайзен",
+  "райф": "Райффайзен", "райффайзен": "Райффайзен",
   "газпром": "Газпромбанк", "газпромбанк": "Газпромбанк",
   "совком": "Совкомбанк", "совкомбанк": "Совкомбанк",
-  "рсхб": "Россельхозбанк", "россельхоз": "Россельхозбанк",
   "открытие": "Открытие",
   "псб": "ПСБ", "промсвязь": "ПСБ",
   "сбп": "СБП", "sbp": "СБП",
+  "озон": "Озон Банк", "ozon": "Озон Банк",
+  "яндекс": "Яндекс Пэй", "yandex": "Яндекс Пэй",
 };
 
-const HAS_DETAILS_PATTERN = /(\d{4}\s?\d{4}\s?\d{4}\s?\d{4}|\+?[78]\d{10}|@\w+)/;
-
-function parsePaymentInfo(text: string): { bank: string | null; hasDetails: boolean } {
+function recognizeBank(text: string): string | null {
   const lower = text.toLowerCase().replace(/^(на|в|через)\s+/, "").trim();
-
-  let bank: string | null = null;
   for (const [alias, name] of Object.entries(BANK_ALIASES)) {
-    if (lower.includes(alias)) {
-      bank = name;
-      break;
-    }
+    if (lower.includes(alias)) return name;
   }
-
-  const hasDetails = HAS_DETAILS_PATTERN.test(text);
-  return { bank, hasDetails };
+  return null;
 }
 
 export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Promise<void> {
@@ -45,13 +37,13 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
   const groupId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
-  // ── Method 1: reply to bot's message ──
+  // Method 1: reply to bot's message
   const replyToId = ctx.message.reply_to_message?.message_id;
   let event = replyToId
     ? await prisma.event.findFirst({ where: { priceRequestMessageId: replyToId } })
     : null;
 
-  // ── Method 2: fallback — organizer's next message when waiting for payment info ──
+  // Method 2: fallback — organizer's next message when waiting for payment info
   if (!event) {
     event = await prisma.event.findFirst({
       where: {
@@ -68,7 +60,6 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     return next();
   }
 
-  // Only organizer can set payment info
   if (userId !== event.createdBy) {
     return next();
   }
@@ -89,7 +80,7 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     });
 
     const msg = await ctx.reply(
-      "💳 Принял! Куда переводить?\nНапиши реквизиты (Сбер 1234... / Т-Банк @nickname):"
+      "💳 Принял! Куда переводить?\nНапиши реквизиты (Сбер, Т-Банк, номер карты...)"
     );
 
     await prisma.event.update({
@@ -100,7 +91,6 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
   }
 
   if (event.paymentInfo !== null) {
-    // Both set — clear and pass through
     await prisma.event.update({
       where: { id: event.id },
       data: { priceRequestMessageId: null },
@@ -108,57 +98,20 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     return next();
   }
 
-  // === Waiting for payment info ===
-  const payInfo = parsePaymentInfo(text);
+  // === Waiting for payment info — accept any answer ===
+  const bank = recognizeBank(text);
+  const paymentInfo = bank || text;
 
-  if (payInfo.bank && !payInfo.hasDetails) {
-    // Bank recognized but no card/phone/nick — ask for details
-    const msg = await ctx.reply(
-      `${payInfo.bank} — принял! Теперь напиши номер карты, телефон или @никнейм для перевода:`
-    );
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { priceRequestMessageId: msg.message_id },
-    });
-    return;
-  }
-
-  let paymentInfo: string;
-
-  if (payInfo.bank && payInfo.hasDetails) {
-    // Bank + details — save full info
-    const cleanText = text.replace(/^(на|в|через)\s+/i, "").trim();
-    paymentInfo = `${payInfo.bank} ${cleanText}`;
-  } else if (!payInfo.bank && payInfo.hasDetails) {
-    // No bank but has number/nick — save as-is
-    paymentInfo = text;
-  } else {
-    // Nothing recognized
-    await ctx.reply(
-      "🤔 Не понял реквизиты. Напиши, например:\n" +
-        "• Сбер 1234 5678 9012 3456\n" +
-        "• Т-Банк +79001234567\n" +
-        "• Т-Банк @nickname\n" +
-        "• СБП +79001234567"
-    );
-    return;
-  }
-
-  // Save payment info
   await prisma.event.update({
     where: { id: event.id },
-    data: {
-      paymentInfo,
-      priceRequestMessageId: null,
-    },
+    data: { paymentInfo, priceRequestMessageId: null },
   });
 
   await enablePaidEvent(event.id);
   await updateEventCard(ctx, event.id);
 
-  await ctx.reply(
-    `💰 Обновлено! Стоимость: ${event.price} ₽ с человека\n💳 Реквизиты: ${paymentInfo}`
-  );
+  const display = bank ? `${event.price} ₽ на ${bank}` : `${event.price} ₽ — ${text}`;
+  await ctx.reply(`💰 Готово! ${display}`);
 }
 
 async function updateEventCard(ctx: MyContext, eventId: string) {

@@ -46,8 +46,10 @@ model Event {
   lastPaymentReminder DateTime?
   createdBy           String
   status              EventStatus   @default(ACTIVE)
-  createdAt           DateTime      @default(now())
-  seriesId            String?
+  createdAt              DateTime      @default(now())
+  seriesId               String?
+  priceRequested         Boolean       @default(false)
+  priceRequestMessageId  Int?
   group               Group         @relation(fields: [groupId], references: [chatId])
   series              EventSeries?  @relation(fields: [seriesId], references: [id])
   participants        Participant[]

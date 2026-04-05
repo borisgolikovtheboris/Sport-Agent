@@ -106,3 +106,23 @@ export async function declineParticipant(
   });
   return { action: "created_declined" };
 }
+
+export async function getKnownGroupMembers(groupId: string): Promise<
+  Array<{ userId: string; username: string | null; firstName: string }>
+> {
+  const participants = await prisma.participant.findMany({
+    where: { event: { groupId } },
+    select: { userId: true, username: true, firstName: true },
+    orderBy: { joinedAt: "desc" },
+  });
+
+  // Deduplicate: keep the most recent record per userId
+  const seen = new Map<string, (typeof participants)[0]>();
+  for (const p of participants) {
+    if (!seen.has(p.userId)) {
+      seen.set(p.userId, p);
+    }
+  }
+
+  return Array.from(seen.values());
+}

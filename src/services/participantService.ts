@@ -14,10 +14,12 @@ export async function joinEvent(eventId: string, user: RsvpUser) {
   }
 
   const existing = event.participants.find((p) => p.userId === user.userId);
+
   if (existing?.status === "GOING") {
     return { ok: false as const, reason: "already_going" as const };
   }
 
+  // Check capacity (only GOING count towards limit)
   const goingCount = event.participants.filter((p) => p.status === "GOING").length;
   if (event.maxParticipants && goingCount >= event.maxParticipants) {
     return {
@@ -26,6 +28,9 @@ export async function joinEvent(eventId: string, user: RsvpUser) {
       max: event.maxParticipants,
     };
   }
+
+  // Was NOT_GOING → switching back to GOING
+  const rejoined = existing?.status === "NOT_GOING";
 
   await prisma.participant.upsert({
     where: { eventId_userId: { eventId, userId: user.userId } },
@@ -44,7 +49,7 @@ export async function joinEvent(eventId: string, user: RsvpUser) {
   });
 
   const updated = await getEvent(eventId);
-  return { ok: true as const, event: updated! };
+  return { ok: true as const, event: updated!, rejoined };
 }
 
 export async function leaveEvent(eventId: string, userId: string) {
@@ -65,4 +70,39 @@ export async function leaveEvent(eventId: string, userId: string) {
 
   const updated = await getEvent(eventId);
   return { ok: true as const, event: updated! };
+}
+
+export async function declineParticipant(
+  eventId: string,
+  userId: string,
+  username: string | null,
+  firstName: string
+): Promise<{ action: "declined" | "already_declined" | "created_declined" }> {
+  const existing = await prisma.participant.findUnique({
+    where: { eventId_userId: { eventId, userId } },
+  });
+
+  if (existing) {
+    if (existing.status === "NOT_GOING") {
+      return { action: "already_declined" };
+    }
+    // Was GOING → decline
+    await prisma.participant.update({
+      where: { eventId_userId: { eventId, userId } },
+      data: { status: "NOT_GOING" },
+    });
+    return { action: "declined" };
+  }
+
+  // Not found → create as NOT_GOING
+  await prisma.participant.create({
+    data: {
+      eventId,
+      userId,
+      username,
+      firstName,
+      status: "NOT_GOING",
+    },
+  });
+  return { action: "created_declined" };
 }

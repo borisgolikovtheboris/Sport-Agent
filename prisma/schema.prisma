@@ -76,6 +76,8 @@ model Reminder {
   sentAt            DateTime?
   status            ReminderStatus @default(PENDING)
   reminderMessageId Int?
+  nudgeDmSent       Int?
+  nudgeDmFailed     Int?
   event             Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
@@ -108,6 +110,7 @@ enum ReminderType {
   SIGNUP_24H
   PAYMENT_AFTER
   SERIES_PUBLISH_48H
+  RSVP_NUDGE
 }
 
 enum ReminderStatus {

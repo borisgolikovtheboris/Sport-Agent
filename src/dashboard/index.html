@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SportBot Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+  }
+  header h1 { font-size: 24px; font-weight: 700; }
+  .btn {
+    background: #0f9b58;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .btn:hover { background: #0d8a4e; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .card {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .card-label { font-size: 13px; color: #8a8a9a; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
+  .card-value { font-size: 36px; font-weight: 700; color: #fff; }
+  .card-sub { font-size: 13px; color: #8a8a9a; margin-top: 4px; }
+
+  .charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .chart-card {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .chart-card h2 { font-size: 16px; margin-bottom: 16px; font-weight: 600; }
+  .chart-card canvas { max-height: 300px; }
+  .no-data { color: #8a8a9a; text-align: center; padding: 60px 0; font-size: 14px; }
+
+  .table-card {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 32px;
+  }
+  .table-card h2 { font-size: 16px; margin-bottom: 16px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: #8a8a9a; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 12px; border-bottom: 1px solid #2a2a4a; }
+  td { padding: 12px; border-bottom: 1px solid #1e2a45; font-size: 14px; }
+  tr:last-child td { border-bottom: none; }
+
+  .auth-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 16px;
+  }
+  .auth-screen h1 { font-size: 28px; margin-bottom: 8px; }
+  .auth-screen input {
+    background: #16213e;
+    border: 1px solid #2a2a4a;
+    color: #e0e0e0;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 16px;
+    width: 320px;
+    outline: none;
+  }
+  .auth-screen input:focus { border-color: #0f9b58; }
+  .error-msg { color: #e74c3c; font-size: 14px; }
+
+  #app { display: none; }
+
+  @media (max-width: 900px) {
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .charts { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 500px) {
+    .metrics { grid-template-columns: 1fr; }
+    body { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="auth" class="auth-screen">
+  <h1>SportBot Dashboard</h1>
+  <p style="color:#8a8a9a">API key</p>
+  <input type="password" id="keyInput" placeholder="DASHBOARD_KEY" autofocus>
+  <button class="btn" onclick="submitKey()">Login</button>
+  <p id="authError" class="error-msg" style="display:none"></p>
+</div>
+
+<div id="app">
+  <header>
+    <h1>SportBot Dashboard</h1>
+    <button class="btn" id="refreshBtn" onclick="loadAll()">Refresh</button>
+  </header>
+
+  <div class="metrics">
+    <div class="card">
+      <div class="card-label">Groups</div>
+      <div class="card-value" id="mGroups">-</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Events</div>
+      <div class="card-value" id="mEvents">-</div>
+      <div class="card-sub" id="mEventsSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Users</div>
+      <div class="card-value" id="mUsers">-</div>
+      <div class="card-sub" id="mUsersSub"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Payments</div>
+      <div class="card-value" id="mPayments">-</div>
+      <div class="card-sub" id="mPaymentsSub"></div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-card">
+      <h2>Events (30 days)</h2>
+      <div id="eventsChartWrap"><canvas id="eventsChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h2>NLU Intents</h2>
+      <div id="nluChartWrap"><canvas id="nluChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <h2>Groups</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Events</th><th>Added</th></tr></thead>
+      <tbody id="groupsTable"><tr><td colspan="3" style="color:#8a8a9a">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let API_KEY = '';
+let eventsChartInstance = null;
+let nluChartInstance = null;
+
+// Check URL param
+const params = new URLSearchParams(location.search);
+if (params.get('key')) {
+  API_KEY = params.get('key');
+  showApp();
+}
+
+function submitKey() {
+  const input = document.getElementById('keyInput');
+  API_KEY = input.value.trim();
+  if (!API_KEY) return;
+  // Test the key
+  apiFetch('/api/stats/overview').then(r => {
+    if (r.ok) { showApp(); }
+    else {
+      document.getElementById('authError').textContent = 'Invalid key';
+      document.getElementById('authError').style.display = 'block';
+    }
+  }).catch(() => {
+    document.getElementById('authError').textContent = 'Connection error';
+    document.getElementById('authError').style.display = 'block';
+  });
+}
+
+document.getElementById('keyInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitKey();
+});
+
+function showApp() {
+  document.getElementById('auth').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  // Update URL without reload
+  if (!params.get('key')) {
+    history.replaceState(null, '', '?key=' + encodeURIComponent(API_KEY));
+  }
+  loadAll();
+}
+
+function apiFetch(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return fetch(path + sep + 'key=' + encodeURIComponent(API_KEY));
+}
+
+async function loadAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await Promise.all([loadOverview(), loadEvents(), loadGroups(), loadNLU()]);
+  } catch (e) {
+    console.error('Load error:', e);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Refresh';
+}
+
+async function loadOverview() {
+  const r = await apiFetch('/api/stats/overview');
+  if (!r.ok) return;
+  const d = await r.json();
+
+  document.getElementById('mGroups').textContent = d.groups.total;
+  document.getElementById('mEvents').textContent = d.events.total;
+  document.getElementById('mEventsSub').textContent = `active: ${d.events.active} | cancelled: ${d.events.cancelled}`;
+  document.getElementById('mUsers').textContent = d.participants.uniqueUsers;
+  document.getElementById('mUsersSub').textContent = `signups: ${d.participants.totalSignups}`;
+
+  const totalPay = d.payments.totalRecords;
+  document.getElementById('mPayments').textContent = totalPay;
+  const verified = d.payments.byStatus.find(s => s.status === 'VERIFIED');
+  document.getElementById('mPaymentsSub').textContent = `verified: ${verified ? verified.count : 0}`;
+}
+
+async function loadEvents() {
+  const r = await apiFetch('/api/stats/events?period=30d');
+  if (!r.ok) return;
+  const d = await r.json();
+
+  const wrap = document.getElementById('eventsChartWrap');
+  if (!d.daily || d.daily.length === 0) {
+    wrap.innerHTML = '<div class="no-data">No data</div>';
+    return;
+  }
+  if (!wrap.querySelector('canvas')) {
+    wrap.innerHTML = '<canvas id="eventsChart"></canvas>';
+  }
+
+  const labels = d.daily.map(e => {
+    const dt = new Date(e.date);
+    return `${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')}`;
+  });
+  const values = d.daily.map(e => e.created);
+
+  if (eventsChartInstance) eventsChartInstance.destroy();
+  eventsChartInstance = new Chart(document.getElementById('eventsChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Events',
+        data: values,
+        borderColor: '#0f9b58',
+        backgroundColor: 'rgba(15,155,88,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8a8a9a', maxTicksLimit: 10 }, grid: { color: '#1e2a45' } },
+        y: { ticks: { color: '#8a8a9a', stepSize: 1 }, grid: { color: '#1e2a45' }, beginAtZero: true },
+      }
+    }
+  });
+}
+
+async function loadGroups() {
+  const r = await apiFetch('/api/stats/groups');
+  if (!r.ok) return;
+  const groups = await r.json();
+  const tbody = document.getElementById('groupsTable');
+
+  if (groups.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="no-data">No groups</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = groups.map(g => {
+    const dt = new Date(g.addedAt);
+    const date = `${dt.getDate()}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
+    return `<tr><td>${esc(g.title)}</td><td>${g.eventsCount}</td><td>${date}</td></tr>`;
+  }).join('');
+}
+
+async function loadNLU() {
+  const r = await apiFetch('/api/stats/nlu');
+  if (!r.ok) return;
+  const d = await r.json();
+
+  const wrap = document.getElementById('nluChartWrap');
+  if (!d.byIntent || d.byIntent.length === 0) {
+    wrap.innerHTML = '<div class="no-data">No data</div>';
+    return;
+  }
+  if (!wrap.querySelector('canvas')) {
+    wrap.innerHTML = '<canvas id="nluChart"></canvas>';
+  }
+
+  const colors = ['#0f9b58','#e74c3c','#3498db','#f39c12','#9b59b6','#1abc9c','#e67e22','#2ecc71'];
+  const labels = d.byIntent.map(i => i.intent);
+  const values = d.byIntent.map(i => i.count);
+
+  if (nluChartInstance) nluChartInstance.destroy();
+  nluChartInstance = new Chart(document.getElementById('nluChart'), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors.slice(0, labels.length),
+        borderWidth: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#e0e0e0', padding: 12 } },
+      }
+    }
+  });
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

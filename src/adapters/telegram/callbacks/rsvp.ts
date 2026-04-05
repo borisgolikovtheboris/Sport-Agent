@@ -19,6 +19,22 @@ async function updateReminderMessages(bot: Bot<MyContext>, eventId: string, grou
   }
 }
 
+async function updateGroupCard(
+  ctx: MyContext,
+  eventId: string,
+  groupId: string,
+  messageId: number | null,
+  cardText: string
+) {
+  if (!messageId) return;
+  try {
+    await ctx.api.editMessageText(groupId, messageId, cardText, {
+      reply_markup: rsvpKeyboard(eventId),
+      parse_mode: "HTML",
+    });
+  } catch (_) {}
+}
+
 export function registerRsvp(bot: Bot<MyContext>) {
   // ── ✅ GOING ──
   bot.callbackQuery(/^go:(.+)$/, async (ctx) => {
@@ -40,15 +56,28 @@ export function registerRsvp(bot: Bot<MyContext>) {
     }
 
     const cardText = formatEventCard(result.event);
-    try {
-      await ctx.editMessageText(cardText, {
-        reply_markup: rsvpKeyboard(eventId),
-        parse_mode: "HTML",
-      });
-    } catch (_) {}
+    const isPrivate = ctx.chat?.type === "private";
+    const msg = result.rejoined
+      ? "Передумал(а)? Отлично! Записал 🎉"
+      : "Записал! Увидимся на тренировке 🎉";
+
+    if (isPrivate) {
+      // Update group card explicitly
+      await updateGroupCard(ctx, eventId, result.event.groupId, result.event.messageId, cardText);
+      // Remove buttons from DM message
+      try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch (_) {}
+    } else {
+      // Update card in place (group)
+      try {
+        await ctx.editMessageText(cardText, {
+          reply_markup: rsvpKeyboard(eventId),
+          parse_mode: "HTML",
+        });
+      } catch (_) {}
+    }
 
     await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
-    await ctx.answerCallbackQuery("Записал! Увидимся на тренировке 🎉");
+    await ctx.answerCallbackQuery(msg);
   });
 
   // ── ❌ NOT GOING ──
@@ -66,12 +95,19 @@ export function registerRsvp(bot: Bot<MyContext>) {
     }
 
     const cardText = formatEventCard(result.event);
-    try {
-      await ctx.editMessageText(cardText, {
-        reply_markup: rsvpKeyboard(eventId),
-        parse_mode: "HTML",
-      });
-    } catch (_) {}
+    const isPrivate = ctx.chat?.type === "private";
+
+    if (isPrivate) {
+      await updateGroupCard(ctx, eventId, result.event.groupId, result.event.messageId, cardText);
+      try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch (_) {}
+    } else {
+      try {
+        await ctx.editMessageText(cardText, {
+          reply_markup: rsvpKeyboard(eventId),
+          parse_mode: "HTML",
+        });
+      } catch (_) {}
+    }
 
     await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
     await ctx.answerCallbackQuery("Понял, убрал тебя из списка.");

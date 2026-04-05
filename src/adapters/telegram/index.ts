@@ -1,4 +1,5 @@
 import { Bot, Context, session, SessionFlavor } from "grammy";
+import prisma from "../../db/prisma";
 import { conversations, createConversation, ConversationFlavor } from "@grammyjs/conversations";
 import { registerGroup } from "../../services/groupService";
 import { createSeries, formatDaysOfWeek } from "../../services/seriesService";
@@ -12,6 +13,8 @@ import { registerRsvp } from "./callbacks/rsvp";
 import { registerPaymentCallbacks } from "./callbacks/payment";
 import { paymentsCommand } from "./commands/payments";
 import { dashboardCommand } from "./commands/dashboard";
+import { priceRequestHandler } from "./priceRequestHandler";
+import { priceReplyHandler } from "./priceReplyHandler";
 import { createNluHandler } from "./nluHandler";
 
 export interface SessionData {
@@ -128,11 +131,37 @@ export function createTelegramBot(token: string) {
     }
   });
 
+  // ── Callback: price_confirm_free ──
+  bot.callbackQuery(/^price_confirm_free:(.+)$/, async (ctx) => {
+    const eventId = ctx.match![1];
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      await ctx.answerCallbackQuery("Событие не найдено.");
+      return;
+    }
+    if (String(ctx.from.id) !== event.createdBy) {
+      await ctx.answerCallbackQuery("Только организатор может это сделать.");
+      return;
+    }
+    await prisma.event.update({
+      where: { id: eventId },
+      data: { priceRequested: false, priceRequestMessageId: null },
+    });
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    } catch (_) {}
+    await ctx.answerCallbackQuery("✅ Тренировка бесплатная!");
+  });
+
   bot.callbackQuery("cancel_series", async (ctx) => {
     await ctx.answerCallbackQuery();
     delete (ctx.session as any).pendingSeriesConfirm;
     await ctx.editMessageText("❌ Создание серии отменено.");
   });
+
+  // ── Price handlers (before NLU) ──
+  bot.on("message:text", priceReplyHandler);
+  bot.on("message:text", priceRequestHandler);
 
   // ── NLU handler (after all commands and callbacks) ──
   bot.use(createNluHandler());

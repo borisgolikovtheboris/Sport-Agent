@@ -123,3 +123,49 @@ export async function cancelEvent(eventId: string, userId: string) {
 
   return { ok: true as const, event };
 }
+
+/**
+ * Enable paid event: create Payment records for GOING participants
+ * and schedule PAYMENT_AFTER reminder if missing.
+ */
+export async function enablePaidEvent(eventId: string): Promise<void> {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: { participants: true },
+  });
+  if (!event || !event.price) return;
+
+  // Create Payment records for all GOING participants
+  const going = event.participants.filter((p) => p.status === "GOING");
+  for (const p of going) {
+    await prisma.payment.upsert({
+      where: { eventId_userId: { eventId, userId: p.userId } },
+      create: {
+        eventId,
+        userId: p.userId,
+        username: p.username,
+        firstName: p.firstName,
+        status: "PENDING",
+      },
+      update: {},
+    });
+  }
+
+  // Create PAYMENT_AFTER reminder if none exists
+  const existing = await prisma.reminder.findFirst({
+    where: { eventId, type: "PAYMENT_AFTER" },
+  });
+  if (!existing) {
+    const reminderTime = new Date(event.datetime.getTime() + 60 * 60 * 1000);
+    if (reminderTime > new Date()) {
+      await prisma.reminder.create({
+        data: {
+          eventId,
+          type: "PAYMENT_AFTER",
+          scheduledFor: reminderTime,
+          status: "PENDING",
+        },
+      });
+    }
+  }
+}

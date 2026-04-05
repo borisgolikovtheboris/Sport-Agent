@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { NLU_CONFIG } from "./nluConfig";
+import prisma from "../db/prisma";
 
 export interface ParsedIntent {
   intent: "create_event" | "cancel_event" | "list_events" | "join_event" | "update_event" | "unknown";
@@ -51,7 +53,7 @@ const SYSTEM_PROMPT = `Ты — парсер намерений для спор�
   "missingFields": ["..."]
 }`;
 
-export async function parseIntent(text: string): Promise<ParsedIntent> {
+export async function parseIntent(text: string, groupId?: string, userId?: string): Promise<ParsedIntent> {
   let apiKey = (process.env.ANTHROPIC_API_KEY || "").trim();
   // Strip leading '=' that some platforms add
   if (apiKey.startsWith("=")) apiKey = apiKey.slice(1).trim();
@@ -65,6 +67,7 @@ export async function parseIntent(text: string): Promise<ParsedIntent> {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), NLU_CONFIG.timeoutMs);
+  const startTime = Date.now();
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -84,54 +87,121 @@ export async function parseIntent(text: string): Promise<ParsedIntent> {
     });
 
     clearTimeout(timeout);
+    const latencyMs = Date.now() - startTime;
 
     if (!response.ok) {
       const errBody = await response.text();
       console.error(`NLU API error: ${response.status}`, errBody);
+
+      // Log error (fire-and-forget)
+      prisma.nLULog.create({
+        data: {
+          groupId: groupId ?? "unknown",
+          userId: userId ?? "unknown",
+          inputText: text.substring(0, 500),
+          intent: "error",
+          confidence: 0,
+          entities: Prisma.JsonNull,
+          latencyMs,
+          success: false,
+          errorMessage: `${response.status}: ${errBody}`.substring(0, 500),
+        },
+      }).catch((err) => console.error("NLU log error:", err));
+
       return unknownIntent(text);
     }
 
     const data: any = await response.json();
     let content = data.content?.[0]?.text;
-    if (!content) return unknownIntent(text);
+    if (!content) {
+      // Log empty response
+      prisma.nLULog.create({
+        data: {
+          groupId: groupId ?? "unknown",
+          userId: userId ?? "unknown",
+          inputText: text.substring(0, 500),
+          intent: "error",
+          confidence: 0,
+          entities: Prisma.JsonNull,
+          latencyMs,
+          success: false,
+          errorMessage: "Empty response content",
+        },
+      }).catch((err) => console.error("NLU log error:", err));
 
-    // Strip markdown code fences if present
-    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/,"").trim();
-
-    const parsed = JSON.parse(content);
-
-    // Validate confidence
-    if (parsed.confidence < NLU_CONFIG.minConfidence) {
       return unknownIntent(text);
     }
 
-    // Validate date is not in the past
-    if (parsed.entities?.date) {
-      const eventDate = new Date(parsed.entities.date);
-      const todayDate = new Date(today);
-      if (eventDate < todayDate) {
-        parsed.missingFields = parsed.missingFields || [];
-        if (!parsed.missingFields.includes("date")) {
-          parsed.missingFields.push("date");
-        }
-        delete parsed.entities.date;
-      }
-    }
+    // Strip markdown code fences if present
+    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
 
-    return {
+    const parsed = JSON.parse(content);
+
+    const result: ParsedIntent = {
       intent: parsed.intent ?? "unknown",
       confidence: parsed.confidence ?? 0,
       entities: parsed.entities ?? {},
       missingFields: parsed.missingFields ?? [],
       rawText: text,
     };
+
+    // Validate date is not in the past
+    if (result.entities?.date) {
+      const eventDate = new Date(result.entities.date);
+      const todayDate = new Date(today);
+      if (eventDate < todayDate) {
+        result.missingFields = result.missingFields || [];
+        if (!result.missingFields.includes("date")) {
+          result.missingFields.push("date");
+        }
+        delete result.entities.date;
+      }
+    }
+
+    // Log success (fire-and-forget)
+    prisma.nLULog.create({
+      data: {
+        groupId: groupId ?? "unknown",
+        userId: userId ?? "unknown",
+        inputText: text.substring(0, 500),
+        intent: result.intent,
+        confidence: result.confidence,
+        entities: result.entities as any,
+        latencyMs,
+        success: true,
+        errorMessage: null,
+      },
+    }).catch((err) => console.error("NLU log error:", err));
+
+    return result;
   } catch (err) {
     clearTimeout(timeout);
+    const latencyMs = Date.now() - startTime;
+    const errMsg = (err as Error).name === "AbortError"
+      ? "Timeout exceeded"
+      : (err as Error).message;
+
     if ((err as Error).name === "AbortError") {
       console.error("NLU timeout exceeded");
     } else {
       console.error("NLU error:", err);
     }
+
+    // Log error (fire-and-forget)
+    prisma.nLULog.create({
+      data: {
+        groupId: groupId ?? "unknown",
+        userId: userId ?? "unknown",
+        inputText: text.substring(0, 500),
+        intent: "error",
+        confidence: 0,
+        entities: Prisma.JsonNull,
+        latencyMs,
+        success: false,
+        errorMessage: errMsg?.substring(0, 500) ?? "Unknown error",
+      },
+    }).catch((logErr) => console.error("NLU log error:", logErr));
+
     return unknownIntent(text);
   }
 }

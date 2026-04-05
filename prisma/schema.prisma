@@ -116,6 +116,23 @@ enum ReminderStatus {
   SKIPPED
 }
 
+model NLULog {
+  id           String   @id @default(uuid())
+  groupId      String
+  userId       String
+  inputText    String
+  intent       String
+  confidence   Float
+  entities     Json?
+  latencyMs    Int
+  success      Boolean
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([groupId])
+}
+
 enum PaymentStatus {
   PENDING
   SELF_CONFIRMED

@@ -59,7 +59,7 @@ export function createNluHandler(): Composer<MyContext> {
 
       if (!datetime) {
         // Ask LLM to interpret the date/time
-        const nluResult = await parseIntent(text);
+        const nluResult = await parseIntent(text, chatId, userId);
         if (nluResult.entities.date && nluResult.entities.time) {
           datetime = new Date(`${nluResult.entities.date}T${nluResult.entities.time}:00`);
           if (isNaN(datetime.getTime())) datetime = null;
@@ -115,7 +115,7 @@ export function createNluHandler(): Composer<MyContext> {
     console.log("NLU: triggered on:", text.slice(0, 80));
 
     // ── 3. Parse intent via LLM ──
-    const result = await parseIntent(text);
+    const result = await parseIntent(text, chatId, userId);
     console.log("NLU result:", JSON.stringify(result));
 
     // ── 4. Dynamic confidence threshold ──

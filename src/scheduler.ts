@@ -2,6 +2,8 @@ import { Api, RawApi } from "grammy";
 import { getDueReminders, markReminderSent, PendingReminder } from "./services/reminderService";
 import { formatEventCard, rsvpKeyboard, paymentKeyboard } from "./adapters/telegram/formatters";
 import { getEvent, saveMessageId } from "./services/eventService";
+import { getKnownGroupMembers } from "./services/participantService";
+import prisma from "./db/prisma";
 
 const INTERVAL_MS = 60 * 1000; // 60 seconds
 
@@ -20,6 +22,8 @@ export function startScheduler(api: Api<RawApi>) {
             await sendPaymentReminder(api, r);
           } else if (r.type === "SERIES_PUBLISH_48H") {
             await publishSeriesEvent(api, r);
+          } else if (r.type === "RSVP_NUDGE") {
+            await sendRsvpNudge(api, r);
           }
         } catch (err) {
           console.error(`Failed to send reminder ${r.id}:`, err);
@@ -81,4 +85,137 @@ async function sendPaymentReminder(api: Api<RawApi>, r: PendingReminder) {
   });
 
   await markReminderSent(r.id, sent.message_id);
+}
+
+// ── RSVP_NUDGE: personal ping to unresponded members ──
+
+async function sendRsvpNudge(api: Api<RawApi>, r: PendingReminder) {
+  const event = await getEvent(r.eventId);
+  if (!event || event.status !== "ACTIVE") {
+    await markReminderSent(r.id);
+    return;
+  }
+
+  // Get known group members
+  const knownMembers = await getKnownGroupMembers(event.groupId);
+
+  // Get who already responded to THIS event
+  const responded = await prisma.participant.findMany({
+    where: { eventId: event.id },
+    select: { userId: true },
+  });
+  const respondedIds = new Set(responded.map((p) => p.userId));
+
+  // Filter unresponded
+  const unresponded = knownMembers.filter((u) => !respondedIds.has(u.userId));
+
+  if (unresponded.length === 0) {
+    await prisma.reminder.update({
+      where: { id: r.id },
+      data: { status: "SENT", sentAt: new Date(), nudgeDmSent: 0, nudgeDmFailed: 0 },
+    });
+    return;
+  }
+
+  // Count going participants
+  const goingCount = event.participants.filter((p) => p.status === "GOING").length;
+
+  const dmText = formatNudgeDM(event, goingCount);
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        { text: "✅ Иду", callback_data: `go:${event.id}` },
+        { text: "❌ Не иду", callback_data: `notgo:${event.id}` },
+      ],
+    ],
+  };
+
+  // Try DM each unresponded member
+  const dmFailed: typeof unresponded = [];
+  let dmSent = 0;
+
+  for (const user of unresponded) {
+    try {
+      await api.sendMessage(Number(user.userId), dmText, {
+        parse_mode: "HTML",
+        reply_markup: replyMarkup,
+      });
+      dmSent++;
+    } catch {
+      dmFailed.push(user);
+    }
+    // Small delay to avoid rate limits
+    if (unresponded.length > 10) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  // Fallback: one message in group for those DM failed
+  if (dmFailed.length > 0) {
+    const mentions = dmFailed
+      .map((u) => (u.username ? `@${u.username}` : u.firstName))
+      .join(" ");
+
+    const groupText = formatNudgeGroup(event, mentions);
+
+    await api.sendMessage(event.groupId, groupText, {
+      parse_mode: "HTML",
+      reply_markup: replyMarkup,
+    });
+  }
+
+  // Update reminder
+  await prisma.reminder.update({
+    where: { id: r.id },
+    data: {
+      status: "SENT",
+      sentAt: new Date(),
+      nudgeDmSent: dmSent,
+      nudgeDmFailed: dmFailed.length,
+    },
+  });
+}
+
+function formatNudgeDM(
+  event: { title: string; datetime: Date; maxParticipants: number | null },
+  goingCount: number
+): string {
+  const d = event.datetime;
+  const day = d.getDate();
+  const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  const month = MONTHS[d.getMonth()];
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+
+  const spots = event.maxParticipants
+    ? `${goingCount} / ${event.maxParticipants}`
+    : `${goingCount}`;
+
+  return (
+    `👋 Привет! Завтра тренировка, ты ещё не отметился(а):\n\n` +
+    `🏃 <b>${event.title}</b>\n` +
+    `📅 ${day} ${month} · ${hours}:${minutes}\n` +
+    `👥 Записались: ${spots}\n\n` +
+    `Идёшь?`
+  );
+}
+
+function formatNudgeGroup(
+  event: { title: string; datetime: Date },
+  mentions: string
+): string {
+  const d = event.datetime;
+  const day = d.getDate();
+  const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  const month = MONTHS[d.getMonth()];
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+
+  return (
+    `👋 Ребят, завтра тренировка — отметьтесь!\n\n` +
+    `🏃 <b>${event.title}</b> · ${day} ${month} · ${hours}:${minutes}\n\n` +
+    `Ждём ответа:\n${mentions}`
+  );
 }

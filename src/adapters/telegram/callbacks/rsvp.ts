@@ -48,28 +48,29 @@ export function registerRsvp(bot: Bot<MyContext>) {
     });
 
     if (!result.ok) {
-      const messages: Record<string, string> = {
-        inactive: "Эта тренировка уже неактивна.",
-        already_going: "Ты уже в списке 😊",
-        full: `Мест нет 😔`,
+      const toasts: Record<string, { text: string; show_alert?: boolean }> = {
+        inactive: { text: "Эта тренировка уже неактивна.", show_alert: true },
+        already_going: { text: "Ты уже в списке 😊" },
+        full: { text: "Мест нет 😔 Все места заняты", show_alert: true },
       };
-      await ctx.answerCallbackQuery(messages[result.reason] ?? "Ошибка");
+      await ctx.answerCallbackQuery(toasts[result.reason] ?? { text: "Ошибка" });
       return;
     }
 
-    const cardText = formatEventCard(result.event);
-    const isPrivate = ctx.chat?.type === "private";
-    const msg = result.rejoined
+    // Answer IMMEDIATELY before long operations
+    const toast = result.rejoined
       ? "Передумал(а)? Отлично! Записал 🎉"
       : "Записал! Увидимся на тренировке 🎉";
+    await ctx.answerCallbackQuery({ text: toast });
+
+    // Long operations below
+    const cardText = formatEventCard(result.event);
+    const isPrivate = ctx.chat?.type === "private";
 
     if (isPrivate) {
-      // Update group card explicitly
       await updateGroupCard(ctx, eventId, result.event.groupId, result.event.messageId, cardText);
-      // Remove buttons from DM message
       try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch (_) {}
     } else {
-      // Update card in place (group)
       try {
         await ctx.editMessageText(cardText, {
           reply_markup: rsvpKeyboard(eventId),
@@ -80,7 +81,6 @@ export function registerRsvp(bot: Bot<MyContext>) {
 
     await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
 
-    // Send short notification so it appears at bottom of chat
     if (!isPrivate) {
       const name = ctx.from.username ? `@${ctx.from.username}` : fullName;
       const goingCount = result.event.participants.filter((p) => p.status === "GOING").length;
@@ -92,8 +92,6 @@ export function registerRsvp(bot: Bot<MyContext>) {
         );
       } catch (_) {}
     }
-
-    await ctx.answerCallbackQuery(msg);
   });
 
   // ── ❌ NOT GOING ──
@@ -103,7 +101,7 @@ export function registerRsvp(bot: Bot<MyContext>) {
 
     const event = await getEvent(eventId);
     if (!event || event.status !== "ACTIVE") {
-      await ctx.answerCallbackQuery("Эта тренировка уже неактивна.");
+      await ctx.answerCallbackQuery({ text: "Эта тренировка уже неактивна.", show_alert: true });
       return;
     }
 
@@ -116,20 +114,22 @@ export function registerRsvp(bot: Bot<MyContext>) {
     );
 
     if (result.action === "already_declined") {
-      await ctx.answerCallbackQuery("Ты уже отметил(а), что не идёшь");
+      await ctx.answerCallbackQuery({ text: "Ты уже отметил(а), что не идёшь" });
       return;
     }
 
-    // Delete payment if existed (was GOING → NOT_GOING)
+    // Answer IMMEDIATELY before long operations
+    await ctx.answerCallbackQuery({ text: "Понял, отметил что не идёшь 👋" });
+
+    // Long operations below
     if (result.action === "declined") {
       try {
         await prisma.payment.delete({
           where: { eventId_userId: { eventId, userId } },
         });
-      } catch (_) {} // No payment record — fine
+      } catch (_) {}
     }
 
-    // Reload event with updated participants
     const updated = await getEvent(eventId);
     if (!updated) return;
 
@@ -150,7 +150,6 @@ export function registerRsvp(bot: Bot<MyContext>) {
 
     await updateReminderMessages(bot, eventId, updated.groupId, cardText);
 
-    // Send short notification so it appears at bottom of chat
     if (!isPrivate && result.action === "declined") {
       const name = ctx.from.username ? `@${ctx.from.username}` : fullName;
       const goingCount = updated.participants.filter((p) => p.status === "GOING").length;
@@ -162,8 +161,6 @@ export function registerRsvp(bot: Bot<MyContext>) {
         );
       } catch (_) {}
     }
-
-    await ctx.answerCallbackQuery("Понял, отметил что не идёшь 👋");
   });
 
   // ── Cancel confirm ──
@@ -173,15 +170,16 @@ export function registerRsvp(bot: Bot<MyContext>) {
     const result = await cancelEvent(eventId, userId);
 
     if (!result.ok) {
-      const messages: Record<string, string> = {
-        not_found: "Тренировка не найдена.",
-        not_owner: "⚠️ Только организатор может отменить тренировку.",
+      const toasts: Record<string, { text: string; show_alert?: boolean }> = {
+        not_found: { text: "Тренировка не найдена.", show_alert: true },
+        not_owner: { text: "Только организатор может отменить.", show_alert: true },
       };
-      await ctx.answerCallbackQuery(messages[result.reason] ?? "Ошибка");
+      await ctx.answerCallbackQuery(toasts[result.reason] ?? { text: "Ошибка" });
       return;
     }
 
-    // Edit original event card
+    await ctx.answerCallbackQuery({ text: "Тренировка отменена ❌" });
+
     if (result.event.messageId) {
       try {
         await ctx.api.editMessageText(
@@ -193,7 +191,6 @@ export function registerRsvp(bot: Bot<MyContext>) {
     }
 
     await ctx.editMessageText(`✅ Тренировка «${result.event.title}» отменена.`);
-    await ctx.answerCallbackQuery("Тренировка отменена.");
 
     await ctx.api.sendMessage(
       result.event.groupId,
@@ -208,19 +205,19 @@ export function registerRsvp(bot: Bot<MyContext>) {
     const result = await cancelSeries(seriesId, userId);
 
     if (!result.success) {
-      await ctx.answerCallbackQuery("⚠️ Не удалось отменить серию.");
+      await ctx.answerCallbackQuery({ text: "Не удалось отменить серию", show_alert: true });
       return;
     }
 
+    await ctx.answerCallbackQuery({ text: "Серия отменена ❌" });
     await ctx.editMessageText(
       `✅ Серия отменена. Отменено тренировок: ${result.cancelledCount}`
     );
-    await ctx.answerCallbackQuery("Серия отменена.");
   });
 
   // ── Cancel abort ──
   bot.callbackQuery(/^cancel_abort:(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "👍 Оставляем" });
     await ctx.editMessageText("👍 Хорошо, тренировка остаётся.");
-    await ctx.answerCallbackQuery();
   });
 }

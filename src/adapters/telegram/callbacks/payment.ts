@@ -12,30 +12,30 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
     const userId = String(ctx.from.id);
 
     const result = await confirmPayment(eventId, userId);
-    await ctx.answerCallbackQuery(result.message);
+    if (!result.success) {
+      await ctx.answerCallbackQuery({ text: result.message, show_alert: result.message.includes("не записан") });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Отмечено! Организатор увидит 💰" });
 
-    if (result.success) {
-      const event = await getEvent(eventId);
-      if (event) {
-        // Send verification buttons to organizer
-        const verifyKb = new InlineKeyboard()
-          .text("✅ Подтвердить", `verify_pay:${eventId}:${userId}`)
-          .text("❌ Отклонить", `reject_pay:${eventId}:${userId}`);
+    const event = await getEvent(eventId);
+    if (event) {
+      const verifyKb = new InlineKeyboard()
+        .text("✅ Подтвердить", `verify_pay:${eventId}:${userId}`)
+        .text("❌ Отклонить", `reject_pay:${eventId}:${userId}`);
 
-        const text = `💳 <b>Оплата</b>: ${ctx.from.first_name} отметил(а) оплату за «${event.title}» (${event.price} ₽)`;
+      const text = `💳 <b>Оплата</b>: ${ctx.from.first_name} отметил(а) оплату за «${event.title}» (${event.price} ₽)`;
 
-        try {
-          await ctx.api.sendMessage(event.createdBy, text, {
-            parse_mode: "HTML",
-            reply_markup: verifyKb,
-          });
-        } catch (_) {
-          // Can't DM organizer — notify in group
-          await ctx.api.sendMessage(
-            event.groupId,
-            `💰 ${ctx.from.first_name} отметил(а) оплату за «${event.title}»`
-          );
-        }
+      try {
+        await ctx.api.sendMessage(event.createdBy, text, {
+          parse_mode: "HTML",
+          reply_markup: verifyKb,
+        });
+      } catch (_) {
+        await ctx.api.sendMessage(
+          event.groupId,
+          `💰 ${ctx.from.first_name} отметил(а) оплату за «${event.title}»`
+        );
       }
     }
   });
@@ -47,30 +47,30 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
     const organizerId = String(ctx.from.id);
 
     const result = await verifyPayment(eventId, userId, organizerId);
-    await ctx.answerCallbackQuery(result.message);
+    if (!result.success) {
+      await ctx.answerCallbackQuery({ text: result.message, show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Оплата подтверждена ✅" });
 
-    if (result.success) {
-      await ctx.editMessageText(ctx.msg?.text + "\n\n✅ Подтверждено");
+    await ctx.editMessageText(ctx.msg?.text + "\n\n✅ Подтверждено");
 
-      // Notify participant
-      const event = await getEvent(eventId);
-      if (event) {
-        try {
-          await ctx.api.sendMessage(
-            userId,
-            `✅ Организатор подтвердил твою оплату за «${event.title}»`
-          );
-        } catch (_) {
-          // Can't DM participant — notify in group
-          const payment = await prisma.payment.findUnique({
-            where: { eventId_userId: { eventId, userId } },
-          });
-          const name = payment?.username ? `@${payment.username}` : payment?.firstName ?? "Участник";
-          await ctx.api.sendMessage(
-            event.groupId,
-            `✅ ${name}, оплата за «${event.title}» подтверждена`
-          );
-        }
+    const event = await getEvent(eventId);
+    if (event) {
+      try {
+        await ctx.api.sendMessage(
+          userId,
+          `✅ Организатор подтвердил твою оплату за «${event.title}»`
+        );
+      } catch (_) {
+        const payment = await prisma.payment.findUnique({
+          where: { eventId_userId: { eventId, userId } },
+        });
+        const name = payment?.username ? `@${payment.username}` : payment?.firstName ?? "Участник";
+        await ctx.api.sendMessage(
+          event.groupId,
+          `✅ ${name}, оплата за «${event.title}» подтверждена`
+        );
       }
     }
   });
@@ -82,29 +82,30 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
     const organizerId = String(ctx.from.id);
 
     const result = await rejectPayment(eventId, userId, organizerId);
-    await ctx.answerCallbackQuery(result.message);
+    if (!result.success) {
+      await ctx.answerCallbackQuery({ text: result.message, show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Оплата отклонена" });
 
-    if (result.success) {
-      await ctx.editMessageText(ctx.msg?.text + "\n\n❌ Отклонено");
+    await ctx.editMessageText(ctx.msg?.text + "\n\n❌ Отклонено");
 
-      // Notify participant
-      const event = await getEvent(eventId);
-      if (event) {
-        try {
-          await ctx.api.sendMessage(
-            userId,
-            `❌ Организатор не подтвердил оплату за «${event.title}». Свяжись с ним для уточнения.`
-          );
-        } catch (_) {
-          const payment = await prisma.payment.findUnique({
-            where: { eventId_userId: { eventId, userId } },
-          });
-          const name = payment?.username ? `@${payment.username}` : payment?.firstName ?? "Участник";
-          await ctx.api.sendMessage(
-            event.groupId,
-            `❌ ${name}, оплата за «${event.title}» не подтверждена. Свяжись с организатором.`
-          );
-        }
+    const event = await getEvent(eventId);
+    if (event) {
+      try {
+        await ctx.api.sendMessage(
+          userId,
+          `❌ Организатор не подтвердил оплату за «${event.title}». Свяжись с ним для уточнения.`
+        );
+      } catch (_) {
+        const payment = await prisma.payment.findUnique({
+          where: { eventId_userId: { eventId, userId } },
+        });
+        const name = payment?.username ? `@${payment.username}` : payment?.firstName ?? "Участник";
+        await ctx.api.sendMessage(
+          event.groupId,
+          `❌ ${name}, оплата за «${event.title}» не подтверждена. Свяжись с организатором.`
+        );
       }
     }
   });
@@ -116,12 +117,12 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const event = await getEvent(eventId);
     if (!event) {
-      await ctx.answerCallbackQuery("Тренировка не найдена.");
+      await ctx.answerCallbackQuery({ text: "Тренировка не найдена.", show_alert: true });
       return;
     }
 
     if (event.createdBy !== userId) {
-      await ctx.answerCallbackQuery("⚠️ Только организатор может отправить напоминание.");
+      await ctx.answerCallbackQuery({ text: "Только организатор может отправить напоминание", show_alert: true });
       return;
     }
 
@@ -130,14 +131,14 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
       const hoursSince = (Date.now() - event.lastPaymentReminder.getTime()) / (1000 * 60 * 60);
       if (hoursSince < 4) {
         const hoursLeft = Math.ceil(4 - hoursSince);
-        await ctx.answerCallbackQuery(`Напоминание уже отправлено. Следующее через ${hoursLeft} ч.`);
+        await ctx.answerCallbackQuery({ text: `Напоминание уже отправлено. Следующее через ${hoursLeft} ч.`, show_alert: true });
         return;
       }
     }
 
     const summary = await getPaymentSummary(eventId);
     if (!summary || summary.unpaid === 0) {
-      await ctx.answerCallbackQuery("Все уже оплатили! 🎉");
+      await ctx.answerCallbackQuery({ text: "Все уже оплатили! 🎉" });
       return;
     }
 
@@ -161,7 +162,7 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
       data: { lastPaymentReminder: new Date() },
     });
 
-    await ctx.answerCallbackQuery("Напоминание отправлено!");
+    await ctx.answerCallbackQuery({ text: "Напоминание отправлено 🔔" });
   });
 
   // ── Payment summary for specific event ──
@@ -170,7 +171,7 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const summary = await getPaymentSummary(eventId);
     if (!summary) {
-      await ctx.answerCallbackQuery("Тренировка не найдена.");
+      await ctx.answerCallbackQuery({ text: "Тренировка не найдена.", show_alert: true });
       return;
     }
 
@@ -222,9 +223,9 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
       kb.text("🔔 Напомнить неоплатившим", `remind_pay:${eventId}`).row();
     }
 
+    await ctx.answerCallbackQuery({ text: "💰" });
     await ctx.editMessageText(text, {
       reply_markup: kb.inline_keyboard.length > 0 ? kb : undefined,
     });
-    await ctx.answerCallbackQuery();
   });
 }

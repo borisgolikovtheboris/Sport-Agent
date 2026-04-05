@@ -99,12 +99,12 @@ export function createTelegramBot(token: string) {
 
   // ── Callback: confirm series creation from NLU ──
   bot.callbackQuery("confirm_series", async (ctx) => {
-    await ctx.answerCallbackQuery();
     const data = (ctx.session as any).pendingSeriesConfirm;
     if (!data) {
-      await ctx.editMessageText("⚠️ Данные серии не найдены. Попробуй ещё раз.");
+      await ctx.answerCallbackQuery({ text: "Данные серии не найдены", show_alert: true });
       return;
     }
+    await ctx.answerCallbackQuery({ text: "Создаю серию..." });
     delete (ctx.session as any).pendingSeriesConfirm;
 
     const { series, events } = await createSeries({
@@ -136,11 +136,11 @@ export function createTelegramBot(token: string) {
     const eventId = ctx.match![1];
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) {
-      await ctx.answerCallbackQuery("Событие не найдено.");
+      await ctx.answerCallbackQuery({ text: "Событие не найдено.", show_alert: true });
       return;
     }
     if (String(ctx.from.id) !== event.createdBy) {
-      await ctx.answerCallbackQuery("Только организатор может это сделать.");
+      await ctx.answerCallbackQuery({ text: "Только организатор может это сделать.", show_alert: true });
       return;
     }
     await prisma.event.update({
@@ -150,11 +150,11 @@ export function createTelegramBot(token: string) {
     try {
       await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
     } catch (_) {}
-    await ctx.answerCallbackQuery("✅ Тренировка бесплатная!");
+    await ctx.answerCallbackQuery({ text: "Тренировка бесплатная ✅" });
   });
 
   bot.callbackQuery("cancel_series", async (ctx) => {
-    await ctx.answerCallbackQuery();
+    await ctx.answerCallbackQuery({ text: "Серия отменена" });
     delete (ctx.session as any).pendingSeriesConfirm;
     await ctx.editMessageText("❌ Создание серии отменено.");
   });

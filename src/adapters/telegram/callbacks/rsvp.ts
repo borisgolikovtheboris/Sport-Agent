@@ -40,10 +40,11 @@ export function registerRsvp(bot: Bot<MyContext>) {
   // ── ✅ GOING ──
   bot.callbackQuery(/^go:(.+)$/, async (ctx) => {
     const eventId = ctx.match[1];
+    const fullName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ");
     const result = await joinEvent(eventId, {
       userId: String(ctx.from.id),
       username: ctx.from.username ?? null,
-      firstName: ctx.from.first_name,
+      firstName: fullName,
     });
 
     if (!result.ok) {
@@ -78,6 +79,20 @@ export function registerRsvp(bot: Bot<MyContext>) {
     }
 
     await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
+
+    // Send short notification so it appears at bottom of chat
+    if (!isPrivate) {
+      const name = ctx.from.username ? `@${ctx.from.username}` : fullName;
+      const goingCount = result.event.participants.filter((p) => p.status === "GOING").length;
+      const maxStr = result.event.maxParticipants ? ` / ${result.event.maxParticipants}` : "";
+      try {
+        await bot.api.sendMessage(
+          result.event.groupId,
+          `${name} записался на ${result.event.title} (👥 ${goingCount}${maxStr})`
+        );
+      } catch (_) {}
+    }
+
     await ctx.answerCallbackQuery(msg);
   });
 
@@ -92,11 +107,12 @@ export function registerRsvp(bot: Bot<MyContext>) {
       return;
     }
 
+    const fullName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ");
     const result = await declineParticipant(
       eventId,
       userId,
       ctx.from.username ?? null,
-      ctx.from.first_name
+      fullName
     );
 
     if (result.action === "already_declined") {
@@ -133,6 +149,20 @@ export function registerRsvp(bot: Bot<MyContext>) {
     }
 
     await updateReminderMessages(bot, eventId, updated.groupId, cardText);
+
+    // Send short notification so it appears at bottom of chat
+    if (!isPrivate && result.action === "declined") {
+      const name = ctx.from.username ? `@${ctx.from.username}` : fullName;
+      const goingCount = updated.participants.filter((p) => p.status === "GOING").length;
+      const maxStr = updated.maxParticipants ? ` / ${updated.maxParticipants}` : "";
+      try {
+        await bot.api.sendMessage(
+          updated.groupId,
+          `${name} не идёт на ${updated.title} (👥 ${goingCount}${maxStr})`
+        );
+      } catch (_) {}
+    }
+
     await ctx.answerCallbackQuery("Понял, отметил что не идёшь 👋");
   });
 

@@ -7,17 +7,39 @@ import { MyContext } from "../index";
 
 type MyConversation = Conversation<MyContext, MyContext>;
 
+const MAX_RETRIES = 5;
+
+/** Wait for text from the initiator only. Returns null after MAX_RETRIES non-initiator messages. */
+async function waitFromUser(
+  conversation: MyConversation,
+  initiatorId: number
+): Promise<{ text: string; ctx: MyContext } | null> {
+  let skipped = 0;
+  while (skipped < 20) {
+    const msg = await conversation.waitFor("message:text");
+    if (msg.from?.id !== initiatorId) {
+      skipped++;
+      continue; // silently ignore other users
+    }
+    return { text: msg.message.text.trim(), ctx: msg };
+  }
+  return null;
+}
+
 export async function newEventConversation(conversation: MyConversation, ctx: MyContext) {
   const chatId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
+  const initiatorId = ctx.from!.id;
 
   // ── Step 1: Title (required) ──
   await ctx.reply("Создаём тренировку 🏃\nНапиши название:");
 
   let title: string | null = null;
+  let retries = 0;
   while (!title) {
-    const titleMsg = await conversation.waitFor("message:text");
-    const text = titleMsg.message.text.trim();
+    const input = await waitFromUser(conversation, initiatorId);
+    if (!input) { await ctx.reply("Создание отменено (таймаут) ❌"); return; }
+    const { text } = input;
     const meta = detectMetaCommand(text);
 
     if (text === "/cancel" || meta === "cancel") {
@@ -42,11 +64,12 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
   );
 
   let datetime: Date | null = null;
-  let parsedDateStr: string | null = null;
+  retries = 0;
 
   while (!datetime) {
-    const dateMsg = await conversation.waitFor("message:text");
-    const text = dateMsg.message.text.trim();
+    const input = await waitFromUser(conversation, initiatorId);
+    if (!input) { await ctx.reply("Создание отменено (таймаут) ❌"); return; }
+    const { text } = input;
     const meta = detectMetaCommand(text);
 
     if (text === "/cancel" || meta === "cancel") {
@@ -59,7 +82,7 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
     }
     if (meta === "help") {
       await ctx.reply(
-        "Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19\n• завтра в 7 вечера\n• послезавтра в 10 утра",
+        "Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19\n• завтра в 7 вечера",
         { parse_mode: "HTML" }
       );
       continue;
@@ -68,6 +91,11 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
     const parsed = await smartParseDate(text);
 
     if (!parsed || !parsed.success || !parsed.date) {
+      retries++;
+      if (retries >= MAX_RETRIES) {
+        await ctx.reply("Создание отменено. Попробуй /newevent заново ❌");
+        return;
+      }
       await ctx.reply(
         "⚠️ Не понял. Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19\n• завтра в 7 вечера",
         { parse_mode: "HTML" }
@@ -77,47 +105,47 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
 
     // Date parsed but no time — ask for time
     if (!parsed.time) {
-      parsedDateStr = parsed.date;
       await ctx.reply(
         `📅 ${formatDateForUser(parsed.date)}. Во сколько? (например: <code>19:00</code>)`,
         { parse_mode: "HTML" }
       );
 
+      let timeRetries = 0;
       let timeResolved = false;
       while (!timeResolved) {
-        const timeMsg = await conversation.waitFor("message:text");
-        const timeText = timeMsg.message.text.trim();
+        const timeInput = await waitFromUser(conversation, initiatorId);
+        if (!timeInput) { await ctx.reply("Создание отменено (таймаут) ❌"); return; }
+        const timeText = timeInput.text;
         const timeMeta = detectMetaCommand(timeText);
 
         if (timeText === "/cancel" || timeMeta === "cancel") {
           await ctx.reply("Создание отменено ❌");
           return;
         }
-        if (timeMeta === "help") {
-          await ctx.reply("Напиши время, например: 19:00, 10:30, 7 вечера");
-          continue;
-        }
 
-        // Try simple HH:MM
         const timeMatch = timeText.match(/^(\d{1,2})[.:](\d{2})$/);
         if (timeMatch) {
           const h = parseInt(timeMatch[1], 10);
           const m = parseInt(timeMatch[2], 10);
           if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-            datetime = new Date(`${parsedDateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+            datetime = new Date(`${parsed.date}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
             timeResolved = true;
             break;
           }
         }
 
-        // Try LLM for time expressions like "7 вечера"
         const timeParsed = await smartParseDate(`сегодня в ${timeText}`);
         if (timeParsed?.time) {
-          datetime = new Date(`${parsedDateStr}T${timeParsed.time}:00`);
+          datetime = new Date(`${parsed.date}T${timeParsed.time}:00`);
           timeResolved = true;
           break;
         }
 
+        timeRetries++;
+        if (timeRetries >= MAX_RETRIES) {
+          await ctx.reply("Создание отменено. Попробуй /newevent заново ❌");
+          return;
+        }
         await ctx.reply("⚠️ Не понял время. Пример: <code>19:00</code>", { parse_mode: "HTML" });
       }
     } else {
@@ -141,32 +169,24 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
 
   let maxParticipants: number | null = null;
   let step3done = false;
+  retries = 0;
   while (!step3done) {
-    const limitMsg = await conversation.waitFor("message:text");
-    const text = limitMsg.message.text.trim();
+    const input = await waitFromUser(conversation, initiatorId);
+    if (!input) { await ctx.reply("Создание отменено (таймаут) ❌"); return; }
+    const { text } = input;
     const meta = detectMetaCommand(text);
 
-    if (text === "/cancel" || meta === "cancel") {
-      await ctx.reply("Создание отменено ❌");
-      return;
-    }
-    if (meta === "skip") {
-      step3done = true;
-      break;
-    }
-    if (meta === "help") {
-      await ctx.reply("Напиши число (например 12) или «без лимита» если без ограничений");
-      continue;
-    }
-    if (text === "без лимита" || text === "/skip") {
-      step3done = true;
-      break;
-    }
+    if (text === "/cancel" || meta === "cancel") { await ctx.reply("Создание отменено ❌"); return; }
+    if (meta === "skip" || text === "без лимита" || text === "/skip") { step3done = true; break; }
+    if (meta === "help") { await ctx.reply("Напиши число (например 12) или «без лимита»"); continue; }
+
     const parsed = parseInt(text, 10);
     if (!isNaN(parsed) && parsed > 0) {
       maxParticipants = parsed;
       step3done = true;
     } else {
+      retries++;
+      if (retries >= MAX_RETRIES) { await ctx.reply("Создание отменено ❌"); return; }
       await ctx.reply("⚠️ Напиши число или «без лимита»");
     }
   }
@@ -176,32 +196,24 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
 
   let price: number | null = null;
   let step4done = false;
+  retries = 0;
   while (!step4done) {
-    const priceMsg = await conversation.waitFor("message:text");
-    const text = priceMsg.message.text.trim();
+    const input = await waitFromUser(conversation, initiatorId);
+    if (!input) { await ctx.reply("Создание отменено (таймаут) ❌"); return; }
+    const { text } = input;
     const meta = detectMetaCommand(text);
 
-    if (text === "/cancel" || meta === "cancel") {
-      await ctx.reply("Создание отменено ❌");
-      return;
-    }
-    if (meta === "skip") {
-      step4done = true;
-      break;
-    }
-    if (meta === "help") {
-      await ctx.reply("Напиши стоимость в рублях (например 500) или «бесплатно»");
-      continue;
-    }
-    if (text === "бесплатно" || text === "/skip") {
-      step4done = true;
-      break;
-    }
+    if (text === "/cancel" || meta === "cancel") { await ctx.reply("Создание отменено ❌"); return; }
+    if (meta === "skip" || text === "бесплатно" || text === "/skip") { step4done = true; break; }
+    if (meta === "help") { await ctx.reply("Напиши стоимость в рублях (например 500) или «бесплатно»"); continue; }
+
     const parsed = parseInt(text, 10);
     if (!isNaN(parsed) && parsed > 0) {
       price = parsed;
       step4done = true;
     } else {
+      retries++;
+      if (retries >= MAX_RETRIES) { await ctx.reply("Создание отменено ❌"); return; }
       await ctx.reply("⚠️ Напиши число или «бесплатно»");
     }
   }
@@ -213,26 +225,15 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
 
     let step5done = false;
     while (!step5done) {
-      const payMsg = await conversation.waitFor("message:text");
-      const text = payMsg.message.text.trim();
+      const input = await waitFromUser(conversation, initiatorId);
+      if (!input) { await ctx.reply("Создание отменено (таймаут) ❌"); return; }
+      const { text } = input;
       const meta = detectMetaCommand(text);
 
-      if (text === "/cancel" || meta === "cancel") {
-        await ctx.reply("Создание отменено ❌");
-        return;
-      }
-      if (meta === "skip") {
-        step5done = true;
-        break;
-      }
-      if (meta === "help") {
-        await ctx.reply("Напиши реквизиты, например: Сбер 1234 5678 9012 3456 или «пропустить»");
-        continue;
-      }
-      if (text === "пропустить" || text === "/skip") {
-        step5done = true;
-        break;
-      }
+      if (text === "/cancel" || meta === "cancel") { await ctx.reply("Создание отменено ❌"); return; }
+      if (meta === "skip" || text === "пропустить" || text === "/skip") { step5done = true; break; }
+      if (meta === "help") { await ctx.reply("Напиши реквизиты или «пропустить»"); continue; }
+
       paymentInfo = text;
       step5done = true;
     }

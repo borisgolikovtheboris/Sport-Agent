@@ -1,6 +1,7 @@
 import { Composer } from "grammy";
 import { InlineKeyboard } from "grammy";
-import { NLU_CONFIG } from "../../nlu/nluConfig";
+import { NLU_CONFIG, shouldTriggerNLU } from "../../nlu/nluConfig";
+import { shouldRunNLU } from "../../nlu/contextFilter";
 import { parseIntent } from "../../nlu/intentParser";
 import { createEvent, saveMessageId, listActiveEvents } from "../../services/eventService";
 import { createSeries, dayNamesToNumbers, formatDaysOfWeek } from "../../services/seriesService";
@@ -41,7 +42,7 @@ export function createNluHandler(): Composer<MyContext> {
 
       const kb = new InlineKeyboard()
         .text("Создать", `confirm_series`)
-        .text("Отмена", `cancel_series`);
+        .text("Отме��а", `cancel_series`);
 
       await ctx.reply(
         `📅 <b>${pendingSeries.title}</b> — каждый ${daysStr} в ${time}\nСоздаю на 3 месяца вперёд?`,
@@ -102,18 +103,36 @@ export function createNluHandler(): Composer<MyContext> {
       return;
     }
 
-    // ── Check trigger words ──
-    const lower = text.toLowerCase();
-    const triggered = NLU_CONFIG.triggerWords.some((w) => lower.includes(w));
-    if (!triggered) return next();
+    // ── 1. Context filter ──
+    if (!shouldRunNLU(text, {
+      hasActiveConversation: false, // conversation plugin handles its own messages
+      isReplyToBot: ctx.message.reply_to_message?.from?.id === ctx.me.id,
+    })) return next();
+
+    // ── 2. Trigger filter ──
+    if (!shouldTriggerNLU(text)) return next();
 
     console.log("NLU: triggered on:", text.slice(0, 80));
 
-    // Parse intent via LLM
+    // ── 3. Parse intent via LLM ──
     const result = await parseIntent(text);
     console.log("NLU result:", JSON.stringify(result));
 
+    // ── 4. Dynamic confidence threshold ──
+    const words = text.trim().split(/\s+/).length;
+    const minConf = words <= 3 ? NLU_CONFIG.minConfidenceShortText : NLU_CONFIG.minConfidence;
+    if (result.confidence < minConf) return next();
+
     if (result.intent === "unknown") return next();
+
+    // ── 5. Handle intents ──
+
+    if (result.intent === "update_event") {
+      await ctx.reply(
+        "Пока не умею менять события. Отмени текущее (/cancel) и создай новое."
+      );
+      return;
+    }
 
     if (result.intent === "list_events") {
       const { events } = await listActiveEvents(chatId);
@@ -156,7 +175,7 @@ export function createNluHandler(): Composer<MyContext> {
 
         const kb = new InlineKeyboard()
           .text("Создать", `confirm_series`)
-          .text("Отмена", `cancel_series`);
+          .text("О��мена", `cancel_series`);
 
         await ctx.reply(
           `📅 <b>${title}</b> — каждый ${daysStr} в ${time}\nСоздаю на 3 месяца вперёд?`,
@@ -166,7 +185,6 @@ export function createNluHandler(): Composer<MyContext> {
       }
 
       // ── Single event ──
-      // Try to build datetime
       let datetime: Date | null = null;
       if (entities.date && entities.time) {
         datetime = new Date(`${entities.date}T${entities.time}:00`);

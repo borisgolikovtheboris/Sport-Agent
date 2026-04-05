@@ -25,16 +25,12 @@ function formatDateRu(date: Date): string {
 
 export function formatEventCard(event: EventWithParticipants): string {
   const going = event.participants.filter((p) => p.status === "GOING");
+  const notGoing = event.participants.filter((p) => p.status === "NOT_GOING");
   const spotsUsed = going.length;
 
   const spotsLine = event.maxParticipants
     ? `👥 Участников: ${spotsUsed} / ${event.maxParticipants}`
     : `👥 Участников: ${spotsUsed}`;
-
-  const participantList =
-    going.length > 0
-      ? going.map((p, i) => `${i + 1}. ${formatParticipantName(p)}`).join("\n")
-      : "(пока никого)";
 
   const titleLine =
     event.status === "CANCELLED"
@@ -45,7 +41,19 @@ export function formatEventCard(event: EventWithParticipants): string {
   if (event.price) {
     lines.push(`💰 ${event.price} ₽ с человека`);
   }
-  lines.push("", "Идут:", participantList);
+
+  lines.push("", "Идут:");
+  if (going.length > 0) {
+    going.forEach((p, i) => lines.push(`${i + 1}. ${formatParticipantName(p)}`));
+  } else {
+    lines.push("(пока никого)");
+  }
+
+  if (notGoing.length > 0) {
+    lines.push("", "Не идут:");
+    notGoing.forEach((p, i) => lines.push(`${i + 1}. ${formatParticipantName(p)}`));
+  }
+
   return lines.join("\n");
 }
 

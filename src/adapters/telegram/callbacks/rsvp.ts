@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
-import { joinEvent, leaveEvent } from "../../../services/participantService";
-import { cancelEvent } from "../../../services/eventService";
+import prisma from "../../../db/prisma";
+import { joinEvent, declineParticipant } from "../../../services/participantService";
+import { cancelEvent, getEvent } from "../../../services/eventService";
 import { cancelSeries } from "../../../services/seriesService";
 import { getReminderMessageIds } from "../../../services/reminderService";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
@@ -83,22 +84,44 @@ export function registerRsvp(bot: Bot<MyContext>) {
   // ── ❌ NOT GOING ──
   bot.callbackQuery(/^notgo:(.+)$/, async (ctx) => {
     const eventId = ctx.match[1];
-    const result = await leaveEvent(eventId, String(ctx.from.id));
+    const userId = String(ctx.from.id);
 
-    if (!result.ok) {
-      const messages: Record<string, string> = {
-        inactive: "Эта тренировка уже неактивна.",
-        not_going: "Ты и так не в списке.",
-      };
-      await ctx.answerCallbackQuery(messages[result.reason] ?? "Ошибка");
+    const event = await getEvent(eventId);
+    if (!event || event.status !== "ACTIVE") {
+      await ctx.answerCallbackQuery("Эта тренировка уже неактивна.");
       return;
     }
 
-    const cardText = formatEventCard(result.event);
+    const result = await declineParticipant(
+      eventId,
+      userId,
+      ctx.from.username ?? null,
+      ctx.from.first_name
+    );
+
+    if (result.action === "already_declined") {
+      await ctx.answerCallbackQuery("Ты уже отметил(а), что не идёшь");
+      return;
+    }
+
+    // Delete payment if existed (was GOING → NOT_GOING)
+    if (result.action === "declined") {
+      try {
+        await prisma.payment.delete({
+          where: { eventId_userId: { eventId, userId } },
+        });
+      } catch (_) {} // No payment record — fine
+    }
+
+    // Reload event with updated participants
+    const updated = await getEvent(eventId);
+    if (!updated) return;
+
+    const cardText = formatEventCard(updated);
     const isPrivate = ctx.chat?.type === "private";
 
     if (isPrivate) {
-      await updateGroupCard(ctx, eventId, result.event.groupId, result.event.messageId, cardText);
+      await updateGroupCard(ctx, eventId, updated.groupId, updated.messageId, cardText);
       try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch (_) {}
     } else {
       try {
@@ -109,8 +132,8 @@ export function registerRsvp(bot: Bot<MyContext>) {
       } catch (_) {}
     }
 
-    await updateReminderMessages(bot, eventId, result.event.groupId, cardText);
-    await ctx.answerCallbackQuery("Понял, убрал тебя из списка.");
+    await updateReminderMessages(bot, eventId, updated.groupId, cardText);
+    await ctx.answerCallbackQuery("Понял, отметил что не идёшь 👋");
   });
 
   // ── Cancel confirm ──

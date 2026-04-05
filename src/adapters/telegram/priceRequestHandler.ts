@@ -1,7 +1,9 @@
 import { NextFunction } from "grammy";
 import prisma from "../../db/prisma";
+import { formatEventCard, rsvpKeyboard } from "./formatters";
 import { MyContext } from "./index";
 
+// Pattern 1: Questions about price (from any participant)
 const PRICE_KEYWORDS = [
   "сколько стоит",
   "какая цена",
@@ -19,21 +21,78 @@ const PRICE_KEYWORDS = [
   "какой прайс",
 ];
 
+// Pattern 2: Price statements (only from organizer)
+const PRICE_STATEMENT_PATTERNS = [
+  /^по\s*(\d+)\s*(руб|₽|р)/i,
+  /^(\d+)\s*(руб|₽|р)\s*(с\s*(человека|чел|носа))?/i,
+  /^цена\s*(\d+)/i,
+  /^стоимость\s*(\d+)/i,
+  /^(\d+)\s*(руб|₽|р)$/i,
+];
+
+function extractPrice(text: string): number | null {
+  for (const pattern of PRICE_STATEMENT_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) {
+      const price = parseInt(match[1], 10);
+      if (!isNaN(price) && price > 0) return price;
+    }
+  }
+  return null;
+}
+
 export async function priceRequestHandler(ctx: MyContext, next: NextFunction): Promise<void> {
   if (!ctx.message?.text || ctx.chat?.type === "private") {
     return next();
   }
 
-  const text = ctx.message.text.toLowerCase();
+  const text = ctx.message.text.trim();
+  const lower = text.toLowerCase();
+  const groupId = String(ctx.chat!.id);
+  const userId = String(ctx.from!.id);
 
-  const hasPriceQuestion = PRICE_KEYWORDS.some((kw) => text.includes(kw));
+  // ── Pattern 2: Organizer states price directly ──
+  const extractedPrice = extractPrice(text);
+  if (extractedPrice) {
+    const event = await prisma.event.findFirst({
+      where: {
+        groupId,
+        status: "ACTIVE",
+        datetime: { gt: new Date() },
+        price: null,
+      },
+      orderBy: { datetime: "asc" },
+    });
+
+    if (event && event.createdBy === userId) {
+      // Organizer stated price → set it immediately
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { price: extractedPrice, priceRequested: true },
+      });
+
+      const msg = await ctx.reply(
+        `💰 Принял! Стоимость: ${extractedPrice} ₽ с человека.\n💳 Куда переводить? Ответь на это сообщение реквизитами.`
+      );
+
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { priceRequestMessageId: msg.message_id },
+      });
+
+      // Update event card to show price
+      await updateEventCard(ctx, event.id);
+      return;
+    }
+    // Not organizer → fall through to question detection or next()
+  }
+
+  // ── Pattern 1: Participant asks about price ──
+  const hasPriceQuestion = PRICE_KEYWORDS.some((kw) => lower.includes(kw));
   if (!hasPriceQuestion) {
     return next();
   }
 
-  const groupId = String(ctx.chat!.id);
-
-  // Find nearest ACTIVE event WITHOUT price in this group
   const event = await prisma.event.findFirst({
     where: {
       groupId,
@@ -65,7 +124,6 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
     organizerMention = "Организатор";
   }
 
-  // Send price request to group
   const msg = await ctx.reply(
     `💰 ${organizerMention}, участники интересуются стоимостью:\n` +
       `⚽ ${event.title}\n\n` +
@@ -79,9 +137,27 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
     }
   );
 
-  // Save messageId for reply tracking
   await prisma.event.update({
     where: { id: event.id },
     data: { priceRequestMessageId: msg.message_id },
   });
+}
+
+async function updateEventCard(ctx: MyContext, eventId: string) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: { participants: true },
+  });
+  if (!event?.messageId) return;
+
+  try {
+    await ctx.api.editMessageText(
+      event.groupId,
+      event.messageId,
+      formatEventCard(event),
+      { parse_mode: "HTML", reply_markup: rsvpKeyboard(event.id) }
+    );
+  } catch (err) {
+    console.error("Failed to update event card after price set:", err);
+  }
 }

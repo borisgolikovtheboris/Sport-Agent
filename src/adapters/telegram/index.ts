@@ -11,6 +11,7 @@ import { cancelCommand } from "./commands/cancel";
 import { registerRsvp } from "./callbacks/rsvp";
 import { registerPaymentCallbacks } from "./callbacks/payment";
 import { paymentsCommand } from "./commands/payments";
+import { dashboardCommand } from "./commands/dashboard";
 import { createNluHandler } from "./nluHandler";
 
 export interface SessionData {
@@ -73,6 +74,7 @@ export function createTelegramBot(token: string) {
   bot.command("events", eventsCommand);
   bot.command("cancel", cancelCommand);
   bot.command("payments", paymentsCommand);
+  bot.command("dashboard", dashboardCommand);
 
   bot.command("help", async (ctx) => {
     await ctx.reply(

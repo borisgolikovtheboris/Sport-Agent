@@ -1,8 +1,8 @@
 import { Conversation } from "@grammyjs/conversations";
 import { createEvent, saveMessageId } from "../../../services/eventService";
-import { parseDate } from "../../../utils/parseDate";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
 import { detectMetaCommand } from "../../../nlu/metaCommands";
+import { smartParseDate, formatDateForUser } from "../../../nlu/dateParser";
 import { MyContext } from "../index";
 
 type MyConversation = Conversation<MyContext, MyContext>;
@@ -37,11 +37,13 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
 
   // ── Step 2: Date & Time (required) ──
   await ctx.reply(
-    "📅 Когда? (формат: <code>ДД.ММ ЧЧ:ММ</code>)\nПример: <code>15.04 19:00</code>",
+    "📅 Когда?\nНапример: <code>15.04 19:00</code>, «в пятницу в 19», «завтра в 7 вечера»",
     { parse_mode: "HTML" }
   );
 
   let datetime: Date | null = null;
+  let parsedDateStr: string | null = null;
+
   while (!datetime) {
     const dateMsg = await conversation.waitFor("message:text");
     const text = dateMsg.message.text.trim();
@@ -56,16 +58,79 @@ export async function newEventConversation(conversation: MyConversation, ctx: My
       continue;
     }
     if (meta === "help") {
-      await ctx.reply("Напиши дату и время в формате ДД.ММ ЧЧ:ММ, например: 15.04 19:00");
+      await ctx.reply(
+        "Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19\n• завтра в 7 вечера\n• послезавтра в 10 утра",
+        { parse_mode: "HTML" }
+      );
       continue;
     }
 
-    datetime = parseDate(text);
-    if (!datetime) {
-      await ctx.reply("⚠️ Не понял формат. Пример: <code>15.04 19:00</code>", {
-        parse_mode: "HTML",
-      });
-    } else if (datetime < new Date()) {
+    const parsed = await smartParseDate(text);
+
+    if (!parsed || !parsed.success || !parsed.date) {
+      await ctx.reply(
+        "⚠️ Не понял. Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19\n• завтра в 7 вечера",
+        { parse_mode: "HTML" }
+      );
+      continue;
+    }
+
+    // Date parsed but no time — ask for time
+    if (!parsed.time) {
+      parsedDateStr = parsed.date;
+      await ctx.reply(
+        `📅 ${formatDateForUser(parsed.date)}. Во сколько? (например: <code>19:00</code>)`,
+        { parse_mode: "HTML" }
+      );
+
+      let timeResolved = false;
+      while (!timeResolved) {
+        const timeMsg = await conversation.waitFor("message:text");
+        const timeText = timeMsg.message.text.trim();
+        const timeMeta = detectMetaCommand(timeText);
+
+        if (timeText === "/cancel" || timeMeta === "cancel") {
+          await ctx.reply("Создание отменено ❌");
+          return;
+        }
+        if (timeMeta === "help") {
+          await ctx.reply("Напиши время, например: 19:00, 10:30, 7 вечера");
+          continue;
+        }
+
+        // Try simple HH:MM
+        const timeMatch = timeText.match(/^(\d{1,2})[.:](\d{2})$/);
+        if (timeMatch) {
+          const h = parseInt(timeMatch[1], 10);
+          const m = parseInt(timeMatch[2], 10);
+          if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            datetime = new Date(`${parsedDateStr}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+            timeResolved = true;
+            break;
+          }
+        }
+
+        // Try LLM for time expressions like "7 вечера"
+        const timeParsed = await smartParseDate(`сегодня в ${timeText}`);
+        if (timeParsed?.time) {
+          datetime = new Date(`${parsedDateStr}T${timeParsed.time}:00`);
+          timeResolved = true;
+          break;
+        }
+
+        await ctx.reply("⚠️ Не понял время. Пример: <code>19:00</code>", { parse_mode: "HTML" });
+      }
+    } else {
+      datetime = new Date(`${parsed.date}T${parsed.time}:00`);
+    }
+
+    if (datetime && isNaN(datetime.getTime())) {
+      datetime = null;
+      await ctx.reply("⚠️ Некорректная дата. Попробуй ещё раз:");
+      continue;
+    }
+
+    if (datetime && datetime < new Date()) {
       await ctx.reply("⚠️ Эта дата уже прошла. Укажи будущую:");
       datetime = null;
     }

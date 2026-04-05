@@ -1,8 +1,8 @@
 import { Conversation } from "@grammyjs/conversations";
 import { createEvent, saveMessageId } from "../../../services/eventService";
-import { parseDate } from "../../../utils/parseDate";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
 import { detectMetaCommand } from "../../../nlu/metaCommands";
+import { smartParseDate, formatDateForUser } from "../../../nlu/dateParser";
 import { MyContext } from "../index";
 import { ParsedIntent } from "../../../nlu/intentParser";
 
@@ -79,16 +79,67 @@ export async function nluConversation(conversation: MyConversation, ctx: MyConte
         continue;
       }
       if (meta === "help") {
-        await ctx.reply("Напиши дату и время в формате ДД.ММ ЧЧ:ММ, например: 15.04 19:00");
+        await ctx.reply(
+          "Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19\n• завтра в 7 вечера",
+          { parse_mode: "HTML" }
+        );
         continue;
       }
 
-      datetime = parseDate(text);
-      if (!datetime) {
-        await ctx.reply("⚠️ Не понял формат. Пример: <code>15.04 19:00</code>", {
-          parse_mode: "HTML",
-        });
-      } else if (datetime < new Date()) {
+      const parsed = await smartParseDate(text);
+
+      if (!parsed || !parsed.success || !parsed.date) {
+        await ctx.reply(
+          "⚠️ Не понял. Напиши дату и время:\n• <code>15.04 19:00</code>\n• в пятницу в 19",
+          { parse_mode: "HTML" }
+        );
+        continue;
+      }
+
+      if (!parsed.time) {
+        // Date without time — ask
+        await ctx.reply(
+          `📅 ${formatDateForUser(parsed.date)}. Во сколько? (например: <code>19:00</code>)`,
+          { parse_mode: "HTML" }
+        );
+        let timeResolved = false;
+        while (!timeResolved) {
+          const timeMsg = await conversation.waitFor("message:text");
+          const timeText = timeMsg.message.text.trim();
+          const timeMeta = detectMetaCommand(timeText);
+          if (timeText === "/cancel" || timeMeta === "cancel") {
+            await ctx.reply("Создание отменено ❌");
+            return;
+          }
+          const timeMatch = timeText.match(/^(\d{1,2})[.:](\d{2})$/);
+          if (timeMatch) {
+            const h = parseInt(timeMatch[1], 10);
+            const m = parseInt(timeMatch[2], 10);
+            if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+              datetime = new Date(`${parsed.date}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+              timeResolved = true;
+              break;
+            }
+          }
+          const timeParsed = await smartParseDate(`сегодня в ${timeText}`);
+          if (timeParsed?.time) {
+            datetime = new Date(`${parsed.date}T${timeParsed.time}:00`);
+            timeResolved = true;
+            break;
+          }
+          await ctx.reply("⚠️ Не понял время. Пример: <code>19:00</code>", { parse_mode: "HTML" });
+        }
+      } else {
+        datetime = new Date(`${parsed.date}T${parsed.time}:00`);
+      }
+
+      if (datetime && isNaN(datetime.getTime())) {
+        datetime = null;
+        await ctx.reply("⚠️ Некорректная дата. Попробуй ещё раз:");
+        continue;
+      }
+
+      if (datetime && datetime < new Date()) {
         await ctx.reply("⚠️ Эта дата уже прошла. Укажи будущую:");
         datetime = null;
       }

@@ -37,6 +37,20 @@ export async function createEvent(input: CreateEventInput) {
     });
   }
 
+  // Create RSVP_NUDGE reminder — day before at 20:00
+  const nudgeDate = new Date(input.datetime);
+  nudgeDate.setDate(nudgeDate.getDate() - 1);
+  nudgeDate.setHours(20, 0, 0, 0);
+  if (nudgeDate.getTime() > Date.now()) {
+    await prisma.reminder.create({
+      data: {
+        eventId: event.id,
+        type: "RSVP_NUDGE",
+        scheduledFor: nudgeDate,
+      },
+    });
+  }
+
   // Create PAYMENT_AFTER reminder if event has a price
   if (input.price) {
     await prisma.reminder.create({

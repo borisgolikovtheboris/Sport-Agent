@@ -95,6 +95,20 @@ export async function createSeries(input: CreateSeriesInput) {
       });
     }
 
+    // RSVP_NUDGE reminder — day before at 20:00
+    const nudgeDate = new Date(dt);
+    nudgeDate.setDate(nudgeDate.getDate() - 1);
+    nudgeDate.setHours(20, 0, 0, 0);
+    if (nudgeDate.getTime() > Date.now()) {
+      await prisma.reminder.create({
+        data: {
+          eventId: event.id,
+          type: "RSVP_NUDGE",
+          scheduledFor: nudgeDate,
+        },
+      });
+    }
+
     // PAYMENT_AFTER reminder
     if (input.price) {
       await prisma.reminder.create({

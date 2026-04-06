@@ -3,7 +3,8 @@ import prisma from "../../db/prisma";
 import { conversations, createConversation, ConversationFlavor } from "@grammyjs/conversations";
 import { registerGroup } from "../../services/groupService";
 import { createSeries, formatDaysOfWeek } from "../../services/seriesService";
-import { saveMessageId } from "../../services/eventService";
+import { createEvent, saveMessageId } from "../../services/eventService";
+import { extractWeekdayFromDate } from "../../nlu/recurrenceCheck";
 import { formatSeriesCard, formatEventCard, rsvpKeyboard } from "./formatters";
 import { newEventConversation } from "./commands/newevent";
 import { startCommand } from "./commands/start";
@@ -22,6 +23,7 @@ export interface SessionData {
   pendingEvent?: any;
   pendingSeries?: any;
   pendingSeriesConfirm?: any;
+  pendingRecurrenceCheck?: any;
 }
 
 export type MyContext = Context &
@@ -157,6 +159,70 @@ export function createTelegramBot(token: string) {
     await ctx.answerCallbackQuery({ text: "Серия отменена" });
     delete (ctx.session as any).pendingSeriesConfirm;
     await ctx.editMessageText("❌ Создание серии отменено.");
+  });
+
+  // ── Callback: recurrence check — one-time ──
+  bot.callbackQuery("recur_once", async (ctx) => {
+    const data = (ctx.session as any).pendingRecurrenceCheck;
+    if (!data) {
+      await ctx.answerCallbackQuery({ text: "Данные не найдены", show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Создаю разовую тренировку..." });
+    delete (ctx.session as any).pendingRecurrenceCheck;
+
+    const event = await createEvent({
+      groupId: data.chatId,
+      title: data.title,
+      datetime: new Date(data.datetime),
+      maxParticipants: data.maxParticipants,
+      price: data.price,
+      paymentInfo: null,
+      createdBy: data.createdBy,
+    });
+
+    await ctx.editMessageText(formatEventCard(event), {
+      reply_markup: rsvpKeyboard(event.id),
+      parse_mode: "HTML",
+    });
+
+    await saveMessageId(event.id, ctx.msg?.message_id ?? 0);
+  });
+
+  // ── Callback: recurrence check — weekly ──
+  bot.callbackQuery("recur_weekly", async (ctx) => {
+    const data = (ctx.session as any).pendingRecurrenceCheck;
+    if (!data) {
+      await ctx.answerCallbackQuery({ text: "Данные не найдены", show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Создаю серию..." });
+    delete (ctx.session as any).pendingRecurrenceCheck;
+
+    const dt = new Date(data.datetime);
+    const dayOfWeek = extractWeekdayFromDate(data.datetime.split("T")[0]);
+    const timeStr = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+
+    const { series, events } = await createSeries({
+      groupId: data.chatId,
+      createdBy: data.createdBy,
+      title: data.title,
+      time: timeStr,
+      daysOfWeek: [dayOfWeek],
+      maxParticipants: data.maxParticipants,
+      price: data.price,
+    });
+
+    await ctx.editMessageText(formatSeriesCard(series, events), { parse_mode: "HTML" });
+
+    if (events.length > 0) {
+      const sent = await ctx.api.sendMessage(
+        data.chatId,
+        formatEventCard(events[0]),
+        { reply_markup: rsvpKeyboard(events[0].id), parse_mode: "HTML" }
+      );
+      await saveMessageId(events[0].id, sent.message_id);
+    }
   });
 
   // ── Price handlers (before NLU) ──

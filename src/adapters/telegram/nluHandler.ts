@@ -7,6 +7,7 @@ import { createEvent, saveMessageId, listActiveEvents } from "../../services/eve
 import { createSeries, dayNamesToNumbers, formatDaysOfWeek } from "../../services/seriesService";
 import { formatEventCard, formatEventsList, formatSeriesCard, rsvpKeyboard } from "./formatters";
 import { parseDate } from "../../utils/parseDate";
+import { shouldAskRecurrence, extractWeekdayFromDate } from "../../nlu/recurrenceCheck";
 import { MyContext } from "./index";
 
 export function createNluHandler(): Composer<MyContext> {
@@ -194,6 +195,26 @@ export function createNluHandler(): Composer<MyContext> {
       }
 
       if (datetime) {
+        // Check if we should ask about recurrence
+        if (shouldAskRecurrence(text, entities)) {
+          (ctx.session as any).pendingRecurrenceCheck = {
+            chatId, title, datetime: datetime.toISOString(),
+            maxParticipants: entities.maxParticipants ?? null,
+            price: entities.price ?? null,
+            createdBy: userId,
+          };
+
+          const kb = new InlineKeyboard()
+            .text("Разовая", "recur_once")
+            .text("Каждую неделю", "recur_weekly");
+
+          await ctx.reply(
+            `🔁 <b>${title}</b> — это разовая тренировка или повторяющаяся?`,
+            { parse_mode: "HTML", reply_markup: kb }
+          );
+          return;
+        }
+
         // All good — create immediately
         const event = await createEvent({
           groupId: chatId,

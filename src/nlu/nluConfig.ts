@@ -10,6 +10,12 @@ export const NLU_CONFIG = {
     "го в", "го на", "погнали", "поехали", "кто за", "давайте", "идём",
   ],
 
+  helpTriggers: [
+    "как создать", "как записаться", "как отменить", "как пользоваться",
+    "что ты можешь", "что ты умеешь", "что умеешь", "как работает",
+    "подскажи", "объясни", "инструкция", "помощь",
+  ],
+
   weakTriggers: [
     "тренировка", "трениро", "игра", "матч",
     "футбол", "баскетбол", "волейбол", "бадминтон", "теннис",
@@ -32,6 +38,9 @@ export function shouldTriggerNLU(text: string): boolean {
 
   // Strong trigger → always
   if (NLU_CONFIG.strongTriggers.some((t) => normalized.includes(t))) return true;
+
+  // Help trigger → always
+  if (NLU_CONFIG.helpTriggers.some((t) => normalized.includes(t))) return true;
 
   // Weak trigger + length > 3 words → yes
   if (NLU_CONFIG.weakTriggers.some((t) => normalized.includes(t)) && words.length > 3) return true;

@@ -3,7 +3,7 @@ import { NLU_CONFIG } from "./nluConfig";
 import prisma from "../db/prisma";
 
 export interface ParsedIntent {
-  intent: "create_event" | "cancel_event" | "list_events" | "join_event" | "update_event" | "unknown";
+  intent: "create_event" | "cancel_event" | "list_events" | "join_event" | "update_event" | "help" | "unknown";
   confidence: number;
   entities: {
     title?: string;
@@ -15,6 +15,7 @@ export interface ParsedIntent {
       days: string[];    // ["tuesday", "thursday"]
       time?: string;     // "20:00"
     } | null;
+    topic?: string;      // for help intent: "create", "signup", "payment", "cancel", "series", "general"
   };
   missingFields: string[];
   rawText: string;
@@ -29,6 +30,7 @@ const SYSTEM_PROMPT = `Ты — парсер намерений для спор�
 - list_events: пользователь хочет посмотреть расписание
 - join_event: пользователь хочет записаться
 - update_event: пользователь хочет изменить параметры существующего события (цену, время, число мест). Примеры: «500 руб за тренировку», «перенеси на 8 вечера». НЕ путать с create_event.
+- help: пользователь задаёт вопрос о боте, его возможностях, как пользоваться. Примеры: «как создать тренировку?», «что ты умеешь?», «как записаться?», «как отменить?». Для help извлеки entity topic: "create" | "signup" | "payment" | "cancel" | "series" | "general".
 - unknown: не относится к управлению событиями
 
 Для create_event извлеки:

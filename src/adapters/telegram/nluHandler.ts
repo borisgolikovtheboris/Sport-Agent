@@ -7,6 +7,7 @@ import { createEvent, saveMessageId, listActiveEvents } from "../../services/eve
 import { createSeries, dayNamesToNumbers, formatDaysOfWeek } from "../../services/seriesService";
 import { formatEventCard, formatEventsList, formatSeriesCard, rsvpKeyboard } from "./formatters";
 import { parseDate } from "../../utils/parseDate";
+import { getHelpResponse } from "./helpResponses";
 import { shouldAskRecurrence, extractWeekdayFromDate } from "../../nlu/recurrenceCheck";
 import { MyContext } from "./index";
 
@@ -127,6 +128,12 @@ export function createNluHandler(): Composer<MyContext> {
     if (result.intent === "unknown") return next();
 
     // ── 5. Handle intents ──
+
+    if (result.intent === "help" && result.confidence >= 0.5) {
+      const topic = result.entities.topic || "general";
+      await ctx.reply(getHelpResponse(topic), { parse_mode: "HTML" });
+      return;
+    }
 
     if (result.intent === "update_event") {
       await ctx.reply(

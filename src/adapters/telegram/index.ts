@@ -17,6 +17,7 @@ import { dashboardCommand } from "./commands/dashboard";
 import { priceRequestHandler } from "./priceRequestHandler";
 import { priceReplyHandler } from "./priceReplyHandler";
 import { createNluHandler } from "./nluHandler";
+import { getHelpResponse } from "./helpResponses";
 
 export interface SessionData {
   nluData?: any;
@@ -86,17 +87,7 @@ export function createTelegramBot(token: string) {
   bot.command("dashboard", dashboardCommand);
 
   bot.command("help", async (ctx) => {
-    await ctx.reply(
-      `📖 <b>SportBot — помощь</b>\n\n` +
-        `/newevent — создать новую тренировку\n` +
-        `/events — список ближайших тренировок\n` +
-        `/cancel — отменить свою тренировку\n` +
-        `/payments — сводка оплат (для организатора)\n` +
-        `/help — эта справка\n\n` +
-        `<i>Или просто напиши в чат, например: «забей футбол в среду на 7 вечера, 12 чел»</i>\n\n` +
-        `<i>Кнопки ✅ Иду и ❌ Не иду появляются под карточкой тренировки</i>`,
-      { parse_mode: "HTML" }
-    );
+    await ctx.reply(getHelpResponse("general"), { parse_mode: "HTML" });
   });
 
   // ── Callbacks ──
@@ -172,6 +163,10 @@ export function createTelegramBot(token: string) {
       await ctx.answerCallbackQuery({ text: "Данные не найдены", show_alert: true });
       return;
     }
+    if (String(ctx.from.id) !== data.createdBy) {
+      await ctx.answerCallbackQuery({ text: "Только автор может выбрать", show_alert: true });
+      return;
+    }
     await ctx.answerCallbackQuery({ text: "Создаю разовую тренировку..." });
     delete (ctx.session as any).pendingRecurrenceCheck;
 
@@ -198,6 +193,10 @@ export function createTelegramBot(token: string) {
     const data = (ctx.session as any).pendingRecurrenceCheck;
     if (!data) {
       await ctx.answerCallbackQuery({ text: "Данные не найдены", show_alert: true });
+      return;
+    }
+    if (String(ctx.from.id) !== data.createdBy) {
+      await ctx.answerCallbackQuery({ text: "Только автор может выбрать", show_alert: true });
       return;
     }
     await ctx.answerCallbackQuery({ text: "Создаю серию..." });

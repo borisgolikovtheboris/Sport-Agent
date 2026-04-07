@@ -7,6 +7,7 @@ import { createEvent, saveMessageId, listActiveEvents } from "../../services/eve
 import { createSeries, dayNamesToNumbers, formatDaysOfWeek } from "../../services/seriesService";
 import { formatEventCard, formatEventsList, formatSeriesCard, rsvpKeyboard } from "./formatters";
 import { parseDate } from "../../utils/parseDate";
+import { smartParseDate } from "../../nlu/dateParser";
 import { getHelpResponse } from "./helpResponses";
 import { shouldAskRecurrence, extractWeekdayFromDate } from "../../nlu/recurrenceCheck";
 import { MyContext } from "./index";
@@ -56,29 +57,58 @@ export function createNluHandler(): Composer<MyContext> {
     // ── Check if we're waiting for a date/time reply ──
     const pending = (ctx.session as any).pendingEvent;
     if (pending && pending.chatId === chatId) {
-      // Try strict format first, then fall back to LLM
-      let datetime = parseDate(text.trim());
+      let datetime: Date | null = null;
 
-      if (!datetime) {
-        // Ask LLM to interpret the date/time
-        const nluResult = await parseIntent(text, chatId, userId);
-        if (nluResult.entities.date && nluResult.entities.time) {
-          datetime = new Date(`${nluResult.entities.date}T${nluResult.entities.time}:00`);
-          if (isNaN(datetime.getTime())) datetime = null;
-        } else if (nluResult.entities.date) {
-          // Date without time — ask for time
-          await ctx.reply("⏰ А во сколько? (например: <code>19:00</code>)", {
+      // If we already have a saved date and are waiting for time only
+      if (pending.partialDate) {
+        // Try HH:MM
+        const timeMatch = text.trim().match(/^(\d{1,2})[.:](\d{2})$/);
+        if (timeMatch) {
+          const h = parseInt(timeMatch[1], 10);
+          const m = parseInt(timeMatch[2], 10);
+          if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            datetime = new Date(`${pending.partialDate}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+          }
+        }
+        // Try LLM for "в 7", "7 вечера" etc.
+        if (!datetime) {
+          const timeParsed = await smartParseDate(`сегодня ${text}`);
+          if (timeParsed?.time) {
+            datetime = new Date(`${pending.partialDate}T${timeParsed.time}:00`);
+          }
+        }
+        if (!datetime) {
+          await ctx.reply("⚠️ Не понял время. Пример: <code>19:00</code> или «в 7 вечера»", {
             parse_mode: "HTML",
           });
           return;
         }
-      }
+        delete pending.partialDate;
+      } else {
+        // Try strict format first, then fall back to LLM
+        datetime = parseDate(text.trim());
 
-      if (!datetime) {
-        await ctx.reply("⚠️ Не понял. Напиши дату и время, например: <code>15.04 19:00</code> или «в пятницу в 19»", {
-          parse_mode: "HTML",
-        });
-        return;
+        if (!datetime) {
+          const nluResult = await parseIntent(text, chatId, userId);
+          if (nluResult.entities.date && nluResult.entities.time) {
+            datetime = new Date(`${nluResult.entities.date}T${nluResult.entities.time}:00`);
+            if (isNaN(datetime.getTime())) datetime = null;
+          } else if (nluResult.entities.date) {
+            // Date without time — save date and ask for time
+            pending.partialDate = nluResult.entities.date;
+            await ctx.reply("⏰ А во сколько? (например: <code>19:00</code> или «в 7 вечера»)", {
+              parse_mode: "HTML",
+            });
+            return;
+          }
+        }
+
+        if (!datetime) {
+          await ctx.reply("⚠️ Не понял. Напиши дату и время, например: <code>15.04 19:00</code> или «в пятницу в 19»", {
+            parse_mode: "HTML",
+          });
+          return;
+        }
       }
       if (datetime < new Date()) {
         await ctx.reply("⚠️ Эта дата уже прошла. Укажи будущую:");

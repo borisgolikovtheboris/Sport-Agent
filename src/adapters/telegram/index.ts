@@ -125,6 +125,18 @@ export function createTelegramBot(token: string) {
         { reply_markup: rsvpKeyboard(events[0].id), parse_mode: "HTML" }
       );
       await saveMessageId(events[0].id, sent.message_id);
+
+      // Ask about price if not set
+      if (!data.price) {
+        const priceMsg = await ctx.api.sendMessage(
+          data.chatId,
+          `💰 Тренировка платная? Напиши стоимость (например: 500) или «бесплатно»:`
+        );
+        await prisma.event.update({
+          where: { id: events[0].id },
+          data: { priceRequestMessageId: priceMsg.message_id },
+        });
+      }
     }
   });
 
@@ -186,6 +198,18 @@ export function createTelegramBot(token: string) {
     });
 
     await saveMessageId(event.id, ctx.msg?.message_id ?? 0);
+
+    // Ask about price if not set
+    if (!data.price) {
+      const priceMsg = await ctx.api.sendMessage(
+        data.chatId,
+        `💰 Тренировка платная? Напиши стоимость (например: 500) или «бесплатно»:`
+      );
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { priceRequestMessageId: priceMsg.message_id },
+      });
+    }
   });
 
   // ── Callback: recurrence check — weekly ──

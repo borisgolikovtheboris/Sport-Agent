@@ -66,9 +66,19 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
 
   if (event.price === null) {
     // === Waiting for price ===
+    const lower = text.toLowerCase();
+    if (lower === "бесплатно" || lower === "бесплатная" || lower === "0" || lower === "нет") {
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { price: 0, priceRequestMessageId: null },
+      });
+      await ctx.reply("👍 Бесплатная тренировка!");
+      return;
+    }
+
     const price = parseInt(text, 10);
     if (isNaN(price) || price <= 0) {
-      await ctx.reply("Напиши число, например: 500", {
+      await ctx.reply("Напиши число (например: 500) или «бесплатно»", {
         reply_to_message_id: ctx.message.message_id,
       });
       return;

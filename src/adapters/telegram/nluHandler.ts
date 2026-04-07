@@ -1,4 +1,5 @@
 import { Composer } from "grammy";
+import prisma from "../../db/prisma";
 import { InlineKeyboard } from "grammy";
 import { NLU_CONFIG, shouldTriggerNLU } from "../../nlu/nluConfig";
 import { shouldRunNLU } from "../../nlu/contextFilter";
@@ -132,6 +133,17 @@ export function createNluHandler(): Composer<MyContext> {
 
       await saveMessageId(event.id, sent.message_id);
       delete (ctx.session as any).pendingEvent;
+
+      // Ask about price if not set
+      if (!pending.price) {
+        const priceMsg = await ctx.reply(
+          `💰 Тренировка платная? Напиши стоимость (например: 500) или «бесплатно»:`
+        );
+        await prisma.event.update({
+          where: { id: event.id },
+          data: { priceRequestMessageId: priceMsg.message_id },
+        });
+      }
       return;
     }
 
@@ -251,6 +263,17 @@ export function createNluHandler(): Composer<MyContext> {
         });
 
         await saveMessageId(event.id, sent.message_id);
+
+        // Ask about price if not set
+        if (!entities.price) {
+          const priceMsg = await ctx.reply(
+            `💰 Тренировка платная? Напиши стоимость (например: 500) или «бесплатно»:`
+          );
+          await prisma.event.update({
+            where: { id: event.id },
+            data: { priceRequestMessageId: priceMsg.message_id },
+          });
+        }
         return;
       }
 

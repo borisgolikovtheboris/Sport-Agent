@@ -202,27 +202,9 @@ export function createNluHandler(): Composer<MyContext> {
       }
 
       if (datetime) {
-        // Check if we should ask about recurrence
-        if (shouldAskRecurrence(text, entities)) {
-          (ctx.session as any).pendingRecurrenceCheck = {
-            chatId, title, datetime: datetime.toISOString(),
-            maxParticipants: entities.maxParticipants ?? null,
-            price: entities.price ?? null,
-            createdBy: userId,
-          };
-
-          const kb = new InlineKeyboard()
-            .text("Разовая", "recur_once")
-            .text("Каждую неделю", "recur_weekly");
-
-          await ctx.reply(
-            `🔁 <b>${title}</b> — это разовая тренировка или повторяющаяся?`,
-            { parse_mode: "HTML", reply_markup: kb }
-          );
-          return;
-        }
-
         // All good — create immediately
+        // Note: recurrence is handled when NLU explicitly extracts it (e.g. "каждый вт")
+        // We don't ask about recurrence for simple weekday mentions to avoid blocking event creation
         const event = await createEvent({
           groupId: chatId,
           title,

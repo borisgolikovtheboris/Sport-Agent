@@ -11,6 +11,7 @@ if (!token) {
 const bot = createTelegramBot(token);
 
 bot.start({
+  drop_pending_updates: true,
   onStart: (info) => {
     console.log(`✅ SportBot started as @${info.username}`);
     startScheduler(bot.api);

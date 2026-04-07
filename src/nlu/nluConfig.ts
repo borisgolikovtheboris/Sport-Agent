@@ -42,8 +42,8 @@ export function shouldTriggerNLU(text: string): boolean {
   // Help trigger → always
   if (NLU_CONFIG.helpTriggers.some((t) => normalized.includes(t))) return true;
 
-  // Weak trigger + length > 3 words → yes
-  if (NLU_CONFIG.weakTriggers.some((t) => normalized.includes(t)) && words.length > 3) return true;
+  // Weak trigger + length >= 3 words → yes
+  if (NLU_CONFIG.weakTriggers.some((t) => normalized.includes(t)) && words.length >= 3) return true;
 
   return false;
 }

@@ -51,6 +51,31 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
   const groupId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
+  // ── Pattern 0: Change collector — "деньги собирает @vasya" ──
+  const collectorMatch = lower.match(
+    /(?:деньги|оплат[уа]?|платить|переводить|кидать|скидывать)\s+(?:собирает|принимает|на|к|у)\s+(@\w+|.+)/
+  );
+  if (collectorMatch) {
+    const event = await prisma.event.findFirst({
+      where: { groupId, status: "ACTIVE", datetime: { gt: new Date() }, price: { not: null } },
+      orderBy: { datetime: "asc" },
+    });
+
+    if (event && event.createdBy === userId) {
+      const raw = collectorMatch[1].trim();
+      const collectorName = raw.startsWith("@") ? raw : raw;
+
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { collectorId: userId, collectorName },
+      });
+
+      await updateEventCard(ctx, event.id);
+      await ctx.reply(`👤 Деньги собирает: ${collectorName}`);
+      return;
+    }
+  }
+
   // ── Pattern 2: Organizer states price directly ──
   const extractedPrice = extractPrice(text);
   if (extractedPrice) {

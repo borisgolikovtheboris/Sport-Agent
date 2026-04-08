@@ -138,7 +138,7 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     await enablePaidEvent(event.id);
     await updateEventCard(ctx, event.id);
 
-    await ctx.reply(`💰 ${price} ₽ с человека. Если спросят кому переводить — напиши в чат.`);
+    await ctx.reply(`💰 ${price} ₽ с человека`);
     return;
   }
 

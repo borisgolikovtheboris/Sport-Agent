@@ -51,10 +51,16 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
   const groupId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
-  // ── Pattern 0: Change collector — "деньги собирает @vasya" ──
-  const collectorMatch = lower.match(
-    /(?:деньги|оплат[уа]?|платить|переводить|кидать|скидывать)\s+(?:собирает|принимает|на|к|у)\s+(@\w+|.+)/
-  );
+  // ── Pattern 0: Change collector — "деньги собирает @vasya", "переводить мне", "платить @ivan" ──
+  const collectorPatterns = [
+    /(?:деньги|оплат[уа]?)\s+(?:собирает|принимает|на|к|у)\s+(.+)/,
+    /(?:платить|переводить|кидать|скидывать)\s+(.+)/,
+  ];
+  let collectorMatch: RegExpMatchArray | null = null;
+  for (const p of collectorPatterns) {
+    collectorMatch = lower.match(p);
+    if (collectorMatch) break;
+  }
   if (collectorMatch) {
     const event = await prisma.event.findFirst({
       where: { groupId, status: "ACTIVE", datetime: { gt: new Date() }, price: { not: null } },
@@ -63,7 +69,13 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
 
     if (event && event.createdBy === userId) {
       const raw = collectorMatch[1].trim();
-      const collectorName = raw.startsWith("@") ? raw : raw;
+      let collectorName: string;
+      if (raw === "мне" || raw === "мне!" || raw === "я" || raw === "сам") {
+        const fullName = [ctx.from!.first_name, (ctx.from as any).last_name].filter(Boolean).join(" ");
+        collectorName = ctx.from!.username ? `@${ctx.from!.username}` : fullName;
+      } else {
+        collectorName = raw;
+      }
 
       await prisma.event.update({
         where: { id: event.id },

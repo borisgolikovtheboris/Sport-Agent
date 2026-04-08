@@ -78,13 +78,13 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     ? await prisma.event.findFirst({ where: { priceRequestMessageId: replyToId } })
     : null;
 
-  // Method 2: fallback — organizer's next message when waiting for price/info/collector
-  if (!event) {
+  // Method 2: fallback — organizer's short message when waiting for price/info/collector
+  // Skip if message looks like a new event (long text with time/date patterns)
+  if (!event && text.split(/\s+/).length <= 5) {
     event = await prisma.event.findFirst({
       where: {
         groupId,
         createdBy: userId,
-        paymentInfo: null,
         priceRequestMessageId: { not: null },
       },
     });

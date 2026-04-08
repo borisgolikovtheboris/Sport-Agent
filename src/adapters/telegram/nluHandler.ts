@@ -244,9 +244,12 @@ export function createNluHandler(): Composer<MyContext> {
       }
 
       if (datetime) {
-        // All good — create immediately
-        // Note: recurrence is handled when NLU explicitly extracts it (e.g. "каждый вт")
-        // We don't ask about recurrence for simple weekday mentions to avoid blocking event creation
+        // Clear stale priceRequestMessageId from previous events
+        await prisma.event.updateMany({
+          where: { groupId: chatId, createdBy: userId, priceRequestMessageId: { not: null } },
+          data: { priceRequestMessageId: null },
+        });
+
         const event = await createEvent({
           groupId: chatId,
           title,

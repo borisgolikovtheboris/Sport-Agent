@@ -147,7 +147,8 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     return;
   }
 
-  if (event.paymentInfo !== null) {
+  if (event.paymentInfo !== null && event.collectorId !== null) {
+    // All set — clear
     await prisma.event.update({
       where: { id: event.id },
       data: { priceRequestMessageId: null },
@@ -155,20 +156,57 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     return next();
   }
 
-  // === Waiting for payment info — accept any answer ===
-  const bank = recognizeBank(text);
-  const paymentInfo = bank || text;
+  if (event.paymentInfo === null) {
+    // === Waiting for payment info ===
+    const bank = recognizeBank(text);
+    const paymentInfo = bank || text;
+
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { paymentInfo },
+    });
+
+    // Ask who collects money
+    const msg = await ctx.reply(
+      `💳 ${paymentInfo} — принял!\n👤 Кто собирает деньги? Напиши @ник или «я»:`
+    );
+
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { priceRequestMessageId: msg.message_id },
+    });
+    return;
+  }
+
+  // === Waiting for collector ===
+  const lower = text.toLowerCase().trim();
+
+  let collectorId: string;
+  let collectorName: string;
+
+  if (lower === "я" || lower === "сам" || lower === "мне") {
+    collectorId = userId;
+    const fullName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ");
+    collectorName = ctx.from?.username ? `@${ctx.from.username}` : fullName;
+  } else if (text.startsWith("@")) {
+    collectorId = userId; // fallback — we don't know their ID
+    collectorName = text.trim();
+  } else {
+    collectorId = userId;
+    collectorName = text.trim();
+  }
 
   await prisma.event.update({
     where: { id: event.id },
-    data: { paymentInfo, priceRequestMessageId: null },
+    data: { collectorId, collectorName, priceRequestMessageId: null },
   });
 
   await enablePaidEvent(event.id);
   await updateEventCard(ctx, event.id);
 
-  const display = bank ? `${event.price} ₽ на ${bank}` : `${event.price} ₽ — ${text}`;
-  await ctx.reply(`💰 Готово! ${display}`);
+  await ctx.reply(
+    `💰 Готово! ${event.price} ₽ на ${event.paymentInfo}\n👤 Деньги собирает: ${collectorName}`
+  );
 }
 
 async function updateEventCard(ctx: MyContext, eventId: string) {

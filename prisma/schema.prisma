@@ -48,6 +48,8 @@ model Event {
   status              EventStatus   @default(ACTIVE)
   createdAt              DateTime      @default(now())
   seriesId               String?
+  collectorId            String?
+  collectorName          String?
   priceRequested         Boolean       @default(false)
   priceRequestMessageId  Int?
   group               Group         @relation(fields: [groupId], references: [chatId])

@@ -132,81 +132,22 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
 
     await prisma.event.update({
       where: { id: event.id },
-      data: { price },
+      data: { price, priceRequestMessageId: null },
     });
 
-    const msg = await ctx.reply(
-      "💳 Принял! Куда переводить?\nНапиши реквизиты (Сбер, Т-Банк, номер карты...)"
-    );
-
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { priceRequestMessageId: msg.message_id },
-    });
-    return;
-  }
-
-  if (event.paymentInfo !== null && event.collectorId !== null) {
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { priceRequestMessageId: null },
-    });
-    return next();
-  }
-
-  if (event.paymentInfo === null) {
-    // === Waiting for payment info ===
-    const bank = recognizeBank(text);
-    const paymentInfo = bank || text;
-
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { paymentInfo },
-    });
-
-    // Enable paid event + update card immediately
     await enablePaidEvent(event.id);
     await updateEventCard(ctx, event.id);
 
-    // Ask who collects money
-    const msg = await ctx.reply(
-      `💳 ${paymentInfo} — принял! ${event.price} ₽ с человека.\n👤 Кто собирает деньги? Напиши @ник или «я»:`
-    );
-
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { priceRequestMessageId: msg.message_id },
-    });
+    await ctx.reply(`💰 ${price} ₽ с человека. Если спросят кому переводить — напиши в чат.`);
     return;
   }
 
-  // === Waiting for collector ===
-  const lower = text.toLowerCase().trim();
-
-  let collectorId: string;
-  let collectorName: string;
-
-  if (lower === "я" || lower === "сам" || lower === "мне") {
-    collectorId = userId;
-    const fullName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ");
-    collectorName = ctx.from?.username ? `@${ctx.from.username}` : fullName;
-  } else if (text.startsWith("@")) {
-    collectorId = userId;
-    collectorName = text.trim();
-  } else {
-    collectorId = userId;
-    collectorName = text.trim();
-  }
-
+  // Fallback: any other pending state — clear and pass through
   await prisma.event.update({
     where: { id: event.id },
-    data: { collectorId, collectorName, priceRequestMessageId: null },
+    data: { priceRequestMessageId: null },
   });
-
-  // Update card again with collector name
-  await updateEventCard(ctx, event.id);
-
-  await ctx.reply(`👤 Деньги собирает: ${collectorName}`);
+  return next();
 }
 
 async function updateEventCard(ctx: MyContext, eventId: string) {

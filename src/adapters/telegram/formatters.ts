@@ -39,10 +39,14 @@ export function formatEventCard(event: EventWithParticipants): string {
 
   const lines = [titleLine, `📅 ${formatDateRu(event.datetime)}`, spotsLine];
   if (event.price) {
-    lines.push(`💰 ${event.price} ₽ с человека`);
+    let priceLine = `💰 ${event.price} ₽ с человека`;
     if ((event as any).collectorName) {
-      lines.push(`👤 Деньги собирает: ${escapeHtml((event as any).collectorName)}`);
+      priceLine += ` → ${escapeHtml((event as any).collectorName)}`;
     }
+    if (event.paymentInfo) {
+      priceLine += ` (${escapeHtml(event.paymentInfo)})`;
+    }
+    lines.push(priceLine);
   }
 
   lines.push("", "Идут:");

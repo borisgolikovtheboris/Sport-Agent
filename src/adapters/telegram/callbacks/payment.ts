@@ -5,6 +5,10 @@ import { paymentKeyboard, paymentSummaryKeyboard } from "../formatters";
 import { MyContext } from "../index";
 import prisma from "../../../db/prisma";
 
+async function safeAnswer(ctx: MyContext, opts: { text: string; show_alert?: boolean }) {
+  try { await ctx.answerCallbackQuery(opts); } catch (_) {}
+}
+
 export function registerPaymentCallbacks(bot: Bot<MyContext>) {
   // ── 💳 Оплатил ──
   bot.callbackQuery(/^paid:(.+)$/, async (ctx) => {
@@ -13,10 +17,10 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const result = await confirmPayment(eventId, userId);
     if (!result.success) {
-      await ctx.answerCallbackQuery({ text: result.message, show_alert: result.message.includes("не записан") });
+      await safeAnswer(ctx, { text: result.message, show_alert: result.message.includes("не записан") });
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Отмечено! Организатор увидит 💰" });
+    await safeAnswer(ctx, { text: "Отмечено! Организатор увидит 💰" });
 
     const event = await getEvent(eventId);
     if (event) {
@@ -48,10 +52,10 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const result = await verifyPayment(eventId, userId, organizerId);
     if (!result.success) {
-      await ctx.answerCallbackQuery({ text: result.message, show_alert: true });
+      await safeAnswer(ctx, { text: result.message, show_alert: true });
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Оплата подтверждена ✅" });
+    await safeAnswer(ctx, { text: "Оплата подтверждена ✅" });
 
     await ctx.editMessageText(ctx.msg?.text + "\n\n✅ Подтверждено");
 
@@ -83,10 +87,10 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const result = await rejectPayment(eventId, userId, organizerId);
     if (!result.success) {
-      await ctx.answerCallbackQuery({ text: result.message, show_alert: true });
+      await safeAnswer(ctx, { text: result.message, show_alert: true });
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Оплата отклонена" });
+    await safeAnswer(ctx, { text: "Оплата отклонена" });
 
     await ctx.editMessageText(ctx.msg?.text + "\n\n❌ Отклонено");
 
@@ -117,12 +121,12 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const event = await getEvent(eventId);
     if (!event) {
-      await ctx.answerCallbackQuery({ text: "Тренировка не найдена.", show_alert: true });
+      await safeAnswer(ctx, { text: "Тренировка не найдена.", show_alert: true });
       return;
     }
 
     if (event.createdBy !== userId) {
-      await ctx.answerCallbackQuery({ text: "Только организатор может отправить напоминание", show_alert: true });
+      await safeAnswer(ctx, { text: "Только организатор может отправить напоминание", show_alert: true });
       return;
     }
 
@@ -131,14 +135,14 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
       const hoursSince = (Date.now() - event.lastPaymentReminder.getTime()) / (1000 * 60 * 60);
       if (hoursSince < 4) {
         const hoursLeft = Math.ceil(4 - hoursSince);
-        await ctx.answerCallbackQuery({ text: `Напоминание уже отправлено. Следующее через ${hoursLeft} ч.`, show_alert: true });
+        await safeAnswer(ctx, { text: `Напоминание уже отправлено. Следующее через ${hoursLeft} ч.`, show_alert: true });
         return;
       }
     }
 
     const summary = await getPaymentSummary(eventId);
     if (!summary || summary.unpaid === 0) {
-      await ctx.answerCallbackQuery({ text: "Все уже оплатили! 🎉" });
+      await safeAnswer(ctx, { text: "Все уже оплатили! 🎉" });
       return;
     }
 
@@ -162,7 +166,7 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
       data: { lastPaymentReminder: new Date() },
     });
 
-    await ctx.answerCallbackQuery({ text: "Напоминание отправлено 🔔" });
+    await safeAnswer(ctx, { text: "Напоминание отправлено 🔔" });
   });
 
   // ── Payment summary for specific event ──
@@ -171,7 +175,7 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
 
     const summary = await getPaymentSummary(eventId);
     if (!summary) {
-      await ctx.answerCallbackQuery({ text: "Тренировка не найдена.", show_alert: true });
+      await safeAnswer(ctx, { text: "Тренировка не найдена.", show_alert: true });
       return;
     }
 
@@ -223,7 +227,7 @@ export function registerPaymentCallbacks(bot: Bot<MyContext>) {
       kb.text("🔔 Напомнить неоплатившим", `remind_pay:${eventId}`).row();
     }
 
-    await ctx.answerCallbackQuery({ text: "💰" });
+    await safeAnswer(ctx, { text: "💰" });
     await ctx.editMessageText(text, {
       reply_markup: kb.inline_keyboard.length > 0 ? kb : undefined,
     });

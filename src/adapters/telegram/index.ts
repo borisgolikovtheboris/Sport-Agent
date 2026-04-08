@@ -32,6 +32,10 @@ export type MyContext = Context &
   SessionFlavor<SessionData> &
   ConversationFlavor<Context & SessionFlavor<SessionData>>;
 
+async function safeAnswer(ctx: MyContext, opts: { text: string; show_alert?: boolean }) {
+  try { await ctx.answerCallbackQuery(opts); } catch (_) {}
+}
+
 export function createTelegramBot(token: string) {
   const bot = new Bot<MyContext>(token);
 
@@ -99,10 +103,10 @@ export function createTelegramBot(token: string) {
   bot.callbackQuery("confirm_series", async (ctx) => {
     const data = (ctx.session as any).pendingSeriesConfirm;
     if (!data) {
-      await ctx.answerCallbackQuery({ text: "Данные серии не найдены", show_alert: true });
+      await safeAnswer(ctx, { text: "Данные серии не найдены", show_alert: true });
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Создаю серию..." });
+    await safeAnswer(ctx, { text: "Создаю серию..." });
     delete (ctx.session as any).pendingSeriesConfirm;
 
     const { series, events } = await createSeries({
@@ -146,11 +150,11 @@ export function createTelegramBot(token: string) {
     const eventId = ctx.match![1];
     const event = await prisma.event.findUnique({ where: { id: eventId } });
     if (!event) {
-      await ctx.answerCallbackQuery({ text: "Событие не найдено.", show_alert: true });
+      await safeAnswer(ctx, { text: "Событие не найдено.", show_alert: true });
       return;
     }
     if (String(ctx.from.id) !== event.createdBy) {
-      await ctx.answerCallbackQuery({ text: "Только организатор может это сделать.", show_alert: true });
+      await safeAnswer(ctx, { text: "Только организатор может это сделать.", show_alert: true });
       return;
     }
     await prisma.event.update({
@@ -160,11 +164,11 @@ export function createTelegramBot(token: string) {
     try {
       await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
     } catch (_) {}
-    await ctx.answerCallbackQuery({ text: "Тренировка бесплатная ✅" });
+    await safeAnswer(ctx, { text: "Тренировка бесплатная ✅" });
   });
 
   bot.callbackQuery("cancel_series", async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "Серия отменена" });
+    await safeAnswer(ctx, { text: "Серия отменена" });
     delete (ctx.session as any).pendingSeriesConfirm;
     await ctx.editMessageText("❌ Создание серии отменено.");
   });
@@ -173,14 +177,14 @@ export function createTelegramBot(token: string) {
   bot.callbackQuery("recur_once", async (ctx) => {
     const data = (ctx.session as any).pendingRecurrenceCheck;
     if (!data) {
-      await ctx.answerCallbackQuery({ text: "Данные не найдены", show_alert: true });
+      await safeAnswer(ctx, { text: "Данные не найдены", show_alert: true });
       return;
     }
     if (String(ctx.from.id) !== data.createdBy) {
-      await ctx.answerCallbackQuery({ text: "Только автор может выбрать", show_alert: true });
+      await safeAnswer(ctx, { text: "Только автор может выбрать", show_alert: true });
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Создаю разовую тренировку..." });
+    await safeAnswer(ctx, { text: "Создаю разовую тренировку..." });
     delete (ctx.session as any).pendingRecurrenceCheck;
 
     const event = await createEvent({
@@ -217,14 +221,14 @@ export function createTelegramBot(token: string) {
   bot.callbackQuery("recur_weekly", async (ctx) => {
     const data = (ctx.session as any).pendingRecurrenceCheck;
     if (!data) {
-      await ctx.answerCallbackQuery({ text: "Данные не найдены", show_alert: true });
+      await safeAnswer(ctx, { text: "Данные не найдены", show_alert: true });
       return;
     }
     if (String(ctx.from.id) !== data.createdBy) {
-      await ctx.answerCallbackQuery({ text: "Только автор может выбрать", show_alert: true });
+      await safeAnswer(ctx, { text: "Только автор может выбрать", show_alert: true });
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Создаю серию..." });
+    await safeAnswer(ctx, { text: "Создаю серию..." });
     delete (ctx.session as any).pendingRecurrenceCheck;
 
     const dt = new Date(data.datetime);

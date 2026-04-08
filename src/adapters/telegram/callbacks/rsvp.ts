@@ -7,6 +7,13 @@ import { getReminderMessageIds } from "../../../services/reminderService";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
 import { MyContext } from "../index";
 
+/** Safe answerCallbackQuery — ignores stale/expired queries */
+async function safeAnswer(ctx: MyContext, opts: { text: string; show_alert?: boolean }) {
+  try {
+    await ctx.answerCallbackQuery(opts);
+  } catch (_) {}
+}
+
 async function updateReminderMessages(bot: Bot<MyContext>, eventId: string, groupId: string, cardText: string) {
   const reminderMsgIds = await getReminderMessageIds(eventId);
   for (const msgId of reminderMsgIds) {
@@ -53,7 +60,7 @@ export function registerRsvp(bot: Bot<MyContext>) {
         already_going: { text: "Ты уже в списке 😊" },
         full: { text: "Мест нет 😔 Все места заняты", show_alert: true },
       };
-      await ctx.answerCallbackQuery(toasts[result.reason] ?? { text: "Ошибка" });
+      await safeAnswer(ctx, toasts[result.reason] ?? { text: "Ошибка" });
       return;
     }
 
@@ -61,7 +68,7 @@ export function registerRsvp(bot: Bot<MyContext>) {
     const toast = result.rejoined
       ? "Передумал(а)? Отлично! Записал 🎉"
       : "Записал! Увидимся на тренировке 🎉";
-    await ctx.answerCallbackQuery({ text: toast });
+    await safeAnswer(ctx, { text: toast });
 
     // Long operations below
     const cardText = formatEventCard(result.event);
@@ -101,7 +108,7 @@ export function registerRsvp(bot: Bot<MyContext>) {
 
     const event = await getEvent(eventId);
     if (!event || event.status !== "ACTIVE") {
-      await ctx.answerCallbackQuery({ text: "Эта тренировка уже неактивна.", show_alert: true });
+      await safeAnswer(ctx, { text: "Эта тренировка уже неактивна.", show_alert: true });
       return;
     }
 
@@ -114,12 +121,12 @@ export function registerRsvp(bot: Bot<MyContext>) {
     );
 
     if (result.action === "already_declined") {
-      await ctx.answerCallbackQuery({ text: "Ты уже отметил(а), что не идёшь" });
+      await safeAnswer(ctx, { text: "Ты уже отметил(а), что не идёшь" });
       return;
     }
 
     // Answer IMMEDIATELY before long operations
-    await ctx.answerCallbackQuery({ text: "Понял, отметил что не идёшь 👋" });
+    await safeAnswer(ctx, { text: "Понял, отметил что не идёшь 👋" });
 
     // Long operations below
     if (result.action === "declined") {
@@ -174,11 +181,11 @@ export function registerRsvp(bot: Bot<MyContext>) {
         not_found: { text: "Тренировка не найдена.", show_alert: true },
         not_owner: { text: "Только организатор может отменить.", show_alert: true },
       };
-      await ctx.answerCallbackQuery(toasts[result.reason] ?? { text: "Ошибка" });
+      await safeAnswer(ctx, toasts[result.reason] ?? { text: "Ошибка" });
       return;
     }
 
-    await ctx.answerCallbackQuery({ text: "Тренировка отменена ❌" });
+    await safeAnswer(ctx, { text: "Тренировка отменена ❌" });
 
     if (result.event.messageId) {
       try {
@@ -205,11 +212,11 @@ export function registerRsvp(bot: Bot<MyContext>) {
     const result = await cancelSeries(seriesId, userId);
 
     if (!result.success) {
-      await ctx.answerCallbackQuery({ text: "Не удалось отменить серию", show_alert: true });
+      await safeAnswer(ctx, { text: "Не удалось отменить серию", show_alert: true });
       return;
     }
 
-    await ctx.answerCallbackQuery({ text: "Серия отменена ❌" });
+    await safeAnswer(ctx, { text: "Серия отменена ❌" });
     await ctx.editMessageText(
       `✅ Серия отменена. Отменено тренировок: ${result.cancelledCount}`
     );
@@ -217,7 +224,7 @@ export function registerRsvp(bot: Bot<MyContext>) {
 
   // ── Cancel abort ──
   bot.callbackQuery(/^cancel_abort:(.+)$/, async (ctx) => {
-    await ctx.answerCallbackQuery({ text: "👍 Оставляем" });
+    await safeAnswer(ctx, { text: "👍 Оставляем" });
     await ctx.editMessageText("👍 Хорошо, тренировка остаётся.");
   });
 }

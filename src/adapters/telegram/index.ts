@@ -16,6 +16,7 @@ import { paymentsCommand } from "./commands/payments";
 import { dashboardCommand } from "./commands/dashboard";
 import { priceRequestHandler } from "./priceRequestHandler";
 import { priceReplyHandler } from "./priceReplyHandler";
+import { plusHandler } from "./plusHandler";
 import { createNluHandler } from "./nluHandler";
 import { getHelpResponse } from "./helpResponses";
 
@@ -252,7 +253,8 @@ export function createTelegramBot(token: string) {
     }
   });
 
-  // ── Price handlers (before NLU) ──
+  // ── Message handlers (before NLU) ──
+  bot.on("message:text", plusHandler);
   bot.on("message:text", priceReplyHandler);
   bot.on("message:text", priceRequestHandler);
 

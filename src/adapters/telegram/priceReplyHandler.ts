@@ -148,7 +148,6 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
   }
 
   if (event.paymentInfo !== null && event.collectorId !== null) {
-    // All set — clear
     await prisma.event.update({
       where: { id: event.id },
       data: { priceRequestMessageId: null },
@@ -166,9 +165,13 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
       data: { paymentInfo },
     });
 
+    // Enable paid event + update card immediately
+    await enablePaidEvent(event.id);
+    await updateEventCard(ctx, event.id);
+
     // Ask who collects money
     const msg = await ctx.reply(
-      `💳 ${paymentInfo} — принял!\n👤 Кто собирает деньги? Напиши @ник или «я»:`
+      `💳 ${paymentInfo} — принял! ${event.price} ₽ с человека.\n👤 Кто собирает деньги? Напиши @ник или «я»:`
     );
 
     await prisma.event.update({
@@ -189,7 +192,7 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     const fullName = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ");
     collectorName = ctx.from?.username ? `@${ctx.from.username}` : fullName;
   } else if (text.startsWith("@")) {
-    collectorId = userId; // fallback — we don't know their ID
+    collectorId = userId;
     collectorName = text.trim();
   } else {
     collectorId = userId;
@@ -201,12 +204,10 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     data: { collectorId, collectorName, priceRequestMessageId: null },
   });
 
-  await enablePaidEvent(event.id);
+  // Update card again with collector name
   await updateEventCard(ctx, event.id);
 
-  await ctx.reply(
-    `💰 Готово! ${event.price} ₽ на ${event.paymentInfo}\n👤 Деньги собирает: ${collectorName}`
-  );
+  await ctx.reply(`👤 Деньги собирает: ${collectorName}`);
 }
 
 async function updateEventCard(ctx: MyContext, eventId: string) {

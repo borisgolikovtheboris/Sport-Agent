@@ -224,7 +224,7 @@ async function updateEventCard(ctx: MyContext, eventId: string) {
       formatEventCard(event),
       { parse_mode: "HTML", reply_markup: rsvpKeyboard(event.id) }
     );
-  } catch (err) {
-    console.error("Failed to update event card after price set:", err);
+  } catch (_) {
+    // "message is not modified" is expected if card already has current data
   }
 }

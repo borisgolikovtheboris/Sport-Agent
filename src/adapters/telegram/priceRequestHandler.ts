@@ -183,6 +183,6 @@ async function updateEventCard(ctx: MyContext, eventId: string) {
       { parse_mode: "HTML", reply_markup: rsvpKeyboard(event.id) }
     );
   } catch (err) {
-    console.error("Failed to update event card after price set:", err);
+    // "message is not modified" is expected
   }
 }

@@ -32,7 +32,7 @@ const CANCEL_WORDS = ["отмена", "отмени", "отменить", "ст�
 const FREE_WORDS = ["бесплатно", "бесплатная", "бесплатный", "фри", "free", "0"];
 
 function parseNaturalPrice(text: string): number | null {
-  const lower = text.toLowerCase().replace(/\s+/g, "").replace(/руб(лей)?|₽|р\b/gi, "");
+  const lower = text.toLowerCase().replace(/^по\s+/i, "").replace(/\s+/g, "").replace(/руб(лей)?|₽|р\b/gi, "");
 
   // "5тыс" "5 тыс" "5тысяч"
   const tысMatch = lower.match(/^(\d+[.,]?\d*)\s*тыс/);
@@ -78,13 +78,12 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     ? await prisma.event.findFirst({ where: { priceRequestMessageId: replyToId } })
     : null;
 
-  // Method 2: fallback — organizer's next message when waiting for payment info
+  // Method 2: fallback — organizer's next message when waiting for price/info/collector
   if (!event) {
     event = await prisma.event.findFirst({
       where: {
         groupId,
         createdBy: userId,
-        price: { not: null },
         paymentInfo: null,
         priceRequestMessageId: { not: null },
       },

@@ -51,10 +51,12 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
   const groupId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
-  // ── Pattern 0: Change collector — "деньги собирает @vasya", "переводить мне", "платить @ivan" ──
+  // ── Pattern 0: Change collector — "деньги собирает @vasya", "переводить мне", "мне", "@ivan" ──
   const collectorPatterns = [
     /(?:деньги|оплат[уа]?)\s+(?:собирает|принимает|на|к|у)\s+(.+)/,
     /(?:платить|переводить|кидать|скидывать)\s+(.+)/,
+    /^(мне|я|сам)$/,
+    /^(@\w+)$/,
   ];
   let collectorMatch: RegExpMatchArray | null = null;
   for (const p of collectorPatterns) {

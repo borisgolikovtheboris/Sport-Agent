@@ -130,15 +130,35 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
       return;
     }
 
+    // Check if collector is included: "по 5 тыс, мне" or "500 руб @ivan"
+    const collectorFromPrice = text.match(/[,;]\s*(мне|я|сам|@\w+|[А-ЯЁа-яё]+\s*[А-ЯЁа-яё]*)$/);
+    let collectorName: string | null = null;
+    if (collectorFromPrice) {
+      const raw = collectorFromPrice[1].trim();
+      if (raw === "мне" || raw === "я" || raw === "сам") {
+        const fullName = [ctx.from?.first_name, (ctx.from as any)?.last_name].filter(Boolean).join(" ");
+        collectorName = ctx.from?.username ? `@${ctx.from.username}` : fullName;
+      } else {
+        collectorName = raw;
+      }
+    }
+
     await prisma.event.update({
       where: { id: event.id },
-      data: { price, priceRequestMessageId: null },
+      data: {
+        price,
+        priceRequestMessageId: null,
+        ...(collectorName ? { collectorId: userId, collectorName } : {}),
+      },
     });
 
     await enablePaidEvent(event.id);
     await updateEventCard(ctx, event.id);
 
-    await ctx.reply(`💰 ${price} ₽ с человека`);
+    const reply = collectorName
+      ? `💰 ${price} ₽ с человека → ${collectorName}`
+      : `💰 ${price} ₽ с человека`;
+    await ctx.reply(reply);
     return;
   }
 

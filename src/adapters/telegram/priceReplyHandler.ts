@@ -28,6 +28,41 @@ function recognizeBank(text: string): string | null {
   return null;
 }
 
+const CANCEL_WORDS = ["отмена", "отмени", "отменить", "стоп", "cancel", "нет", "не надо", "отбой"];
+const FREE_WORDS = ["бесплатно", "бесплатная", "бесплатный", "фри", "free", "0"];
+
+function parseNaturalPrice(text: string): number | null {
+  const lower = text.toLowerCase().replace(/\s+/g, "").replace(/руб(лей)?|₽|р\b/gi, "");
+
+  // "5тыс" "5 тыс" "5тысяч"
+  const tысMatch = lower.match(/^(\d+[.,]?\d*)\s*тыс/);
+  if (tысMatch) return Math.round(parseFloat(tысMatch[1].replace(",", ".")) * 1000);
+
+  // "5к" "5k"
+  const kMatch = lower.match(/^(\d+[.,]?\d*)\s*[кk]$/);
+  if (kMatch) return Math.round(parseFloat(kMatch[1].replace(",", ".")) * 1000);
+
+  // "полторы тысячи" "полтора"
+  if (/полтор/.test(lower)) return 1500;
+
+  // Text numbers
+  const textNumbers: Record<string, number> = {
+    "сто": 100, "двести": 200, "триста": 300, "четыреста": 400, "пятьсот": 500,
+    "шестьсот": 600, "семьсот": 700, "восемьсот": 800, "девятьсот": 900,
+    "тысяча": 1000, "тысячу": 1000, "две тысячи": 2000, "три тысячи": 3000,
+    "пять тысяч": 5000, "десять тысяч": 10000,
+  };
+  for (const [word, val] of Object.entries(textNumbers)) {
+    if (lower.includes(word.replace(/\s+/g, ""))) return val;
+  }
+
+  // Plain number: "500", "5000"
+  const num = parseInt(text.replace(/[^\d]/g, ""), 10);
+  if (!isNaN(num) && num > 0) return num;
+
+  return null;
+}
+
 export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Promise<void> {
   if (!ctx.message?.text || ctx.chat?.type === "private") {
     return next();
@@ -66,8 +101,20 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
 
   if (event.price === null) {
     // === Waiting for price ===
-    const lower = text.toLowerCase();
-    if (lower === "бесплатно" || lower === "бесплатная" || lower === "0" || lower === "нет") {
+    const lower = text.toLowerCase().trim();
+
+    // Cancel
+    if (CANCEL_WORDS.some((w) => lower === w || lower.startsWith(w + " "))) {
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { priceRequestMessageId: null },
+      });
+      await ctx.reply("👍 Ок, цену можно указать позже.");
+      return;
+    }
+
+    // Free
+    if (FREE_WORDS.some((w) => lower === w)) {
       await prisma.event.update({
         where: { id: event.id },
         data: { price: 0, priceRequestMessageId: null },
@@ -76,9 +123,9 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
       return;
     }
 
-    const price = parseInt(text, 10);
-    if (isNaN(price) || price <= 0) {
-      await ctx.reply("Напиши число (например: 500) или «бесплатно»", {
+    const price = parseNaturalPrice(text);
+    if (!price) {
+      await ctx.reply("Не понял. Напиши число, например: 500, 5тыс, 1.5к или «бесплатно»", {
         reply_to_message_id: ctx.message.message_id,
       });
       return;

@@ -78,9 +78,10 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     ? await prisma.event.findFirst({ where: { priceRequestMessageId: replyToId } })
     : null;
 
-  // Method 2: fallback — organizer's short message when waiting for price/info/collector
-  // Skip if message looks like a new event (long text with time/date patterns)
-  if (!event && text.split(/\s+/).length <= 5) {
+  // Method 2: fallback — organizer's message when waiting for price/info
+  // Skip if message looks like a new event creation (has time pattern like "в 19:00")
+  const looksLikeEvent = /\d{1,2}[.:]\d{2}/.test(text) && text.split(/\s+/).length > 5;
+  if (!event && !looksLikeEvent) {
     event = await prisma.event.findFirst({
       where: {
         groupId,

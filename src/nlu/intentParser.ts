@@ -160,6 +160,15 @@ export async function parseIntent(text: string, groupId?: string, userId?: strin
       }
     }
 
+    // Validate day of week — fix if NLU calculated wrong date
+    if (result.entities?.date) {
+      const corrected = correctDayOfWeek(text, result.entities.date);
+      if (corrected !== result.entities.date) {
+        console.log(`NLU date corrected: ${result.entities.date} → ${corrected}`);
+        result.entities.date = corrected;
+      }
+    }
+
     // Log success (fire-and-forget)
     prisma.nLULog.create({
       data: {
@@ -206,6 +215,58 @@ export async function parseIntent(text: string, groupId?: string, userId?: strin
 
     return unknownIntent(text);
   }
+}
+
+const DAY_NAMES_RU: Record<string, number> = {
+  "воскресенье": 0, "воскресень": 0, "воскреснье": 0, "воскресение": 0,
+  "понедельник": 1,
+  "вторник": 2,
+  "среду": 3, "среда": 3, "среде": 3,
+  "четверг": 4,
+  "пятницу": 5, "пятница": 5, "пятнице": 5,
+  "субботу": 6, "суббота": 6, "субботе": 6,
+};
+
+function correctDayOfWeek(rawText: string, dateStr: string): string {
+  const lower = rawText.toLowerCase();
+
+  // Find which day user mentioned
+  let expectedDay: number | null = null;
+  for (const [word, day] of Object.entries(DAY_NAMES_RU)) {
+    if (lower.includes(word)) {
+      expectedDay = day;
+      break;
+    }
+  }
+
+  if (expectedDay === null) return dateStr;
+
+  const d = new Date(dateStr + "T12:00:00");
+  const actualDay = d.getDay();
+
+  if (actualDay === expectedDay) return dateStr;
+
+  // Find the nearest future date with the expected day
+  const diff = (expectedDay - actualDay + 7) % 7 || 7;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Try both directions: forward and backward from NLU date
+  const forward = new Date(d);
+  forward.setDate(forward.getDate() + ((expectedDay - actualDay + 7) % 7 || 7));
+  const backward = new Date(forward);
+  backward.setDate(backward.getDate() - 7);
+
+  // Pick the one that's in the future and closest to today
+  let best = forward;
+  if (backward >= today && backward < forward) {
+    best = backward;
+  }
+
+  const yyyy = best.getFullYear();
+  const mm = String(best.getMonth() + 1).padStart(2, "0");
+  const dd = String(best.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function unknownIntent(text: string): ParsedIntent {

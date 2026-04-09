@@ -51,6 +51,29 @@ export async function priceRequestHandler(ctx: MyContext, next: NextFunction): P
   const groupId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);
 
+  // ── Pattern -1: "кто собирает?", "кому переводить?", "куда платить?" ──
+  const collectorQuestion = /кто\s+собирает|кому\s+(перевод|плат|кида)|куда\s+(перевод|плат|кида)/i.test(lower);
+  if (collectorQuestion) {
+    const event = await prisma.event.findFirst({
+      where: { groupId, status: "ACTIVE", datetime: { gt: new Date() }, price: { not: null } },
+      orderBy: { datetime: "asc" },
+    });
+    if (event) {
+      if ((event as any).collectorName) {
+        await ctx.reply(`👤 Деньги собирает: ${(event as any).collectorName}${event.paymentInfo ? ` (${event.paymentInfo})` : ""}`);
+      } else {
+        // Ping organizer
+        let organizerMention: string;
+        try {
+          const member = await ctx.api.getChatMember(ctx.chat!.id, Number(event.createdBy));
+          organizerMention = member.user.username ? `@${member.user.username}` : member.user.first_name;
+        } catch { organizerMention = "Организатор"; }
+        await ctx.reply(`${organizerMention}, кому переводить за ${event.title}?`);
+      }
+      return;
+    }
+  }
+
   // ── Pattern 0: Change collector — "деньги собирает @vasya", "переводить мне", "мне", "@ivan" ──
   const collectorPatterns = [
     /(?:деньги|оплат[уа]?)\s+(?:собирает|принимает|на|к|у)\s+(.+)/,

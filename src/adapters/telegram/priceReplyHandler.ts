@@ -56,9 +56,11 @@ function parseNaturalPrice(text: string): number | null {
     if (lower.includes(word.replace(/\s+/g, ""))) return val;
   }
 
-  // Plain number: "500", "5000"
-  const num = parseInt(text.replace(/[^\d]/g, ""), 10);
-  if (!isNaN(num) && num > 0) return num;
+  // Plain number: "500", "5000", "500 руб" — only if text is short (likely a price answer)
+  if (text.trim().split(/\s+/).length <= 4) {
+    const num = parseInt(text.replace(/[^\d]/g, ""), 10);
+    if (!isNaN(num) && num > 0) return num;
+  }
 
   return null;
 }
@@ -79,8 +81,10 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     : null;
 
   // Method 2: fallback — organizer's message when waiting for price/info
-  // Skip if message looks like a new event creation (has time pattern like "в 19:00")
-  const looksLikeEvent = /\d{1,2}[.:]\d{2}/.test(text) && text.split(/\s+/).length > 5;
+  // Skip if message looks like event creation (sport + time/date keywords)
+  const hasTimePattern = /\d{1,2}[.:]\d{2}|в\s+\d{1,2}\s*(утра|вечера|часов|ч\b)|завтра|сегодня|послезавтра|в\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)/i.test(text);
+  const hasSportKeyword = /футбол|хоккей|теннис|баскетбол|волейбол|бадминтон|бег|йога|плавание|тренировка|падел|сквош/i.test(text);
+  const looksLikeEvent = hasTimePattern && hasSportKeyword;
   if (!event && !looksLikeEvent) {
     event = await prisma.event.findFirst({
       where: {

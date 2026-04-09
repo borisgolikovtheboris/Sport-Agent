@@ -147,27 +147,61 @@ export function createNluHandler(): Composer<MyContext> {
       return;
     }
 
-    // ── 1. Context filter ──
-    if (!shouldRunNLU(text, {
-      hasActiveConversation: false, // conversation plugin handles its own messages
+    // ── Check if bot was mentioned (@username) ──
+    const botMentioned = text.includes(`@${ctx.me.username}`);
+    const cleanText = botMentioned
+      ? text.replace(`@${ctx.me.username}`, "").trim()
+      : text;
+
+    // ── 1. Context filter (skip if bot was mentioned) ──
+    if (!botMentioned && !shouldRunNLU(text, {
+      hasActiveConversation: false,
       isReplyToBot: ctx.message.reply_to_message?.from?.id === ctx.me.id,
     })) return next();
 
-    // ── 2. Trigger filter ──
-    if (!shouldTriggerNLU(text)) return next();
+    // ── 2. Trigger filter (skip if bot was mentioned) ──
+    if (!botMentioned && !shouldTriggerNLU(text)) return next();
 
     console.log("NLU: triggered on:", text.slice(0, 80));
 
     // ── 3. Parse intent via LLM ──
-    const result = await parseIntent(text, chatId, userId);
+    const result = await parseIntent(botMentioned ? cleanText : text, chatId, userId);
     console.log("NLU result:", JSON.stringify(result));
 
-    // ── 4. Dynamic confidence threshold ──
+    // ── 4. Handle NLU errors ──
+    if (result.intent === "unknown" && result.confidence === 0 && botMentioned) {
+      // NLU failed (API error/timeout) and bot was tagged — respond
+      await ctx.reply(
+        "Что-то не понял. Попробуй так:\n💬 «Футбол в среду в 19»\nИли напиши /help",
+        { reply_to_message_id: ctx.message.message_id }
+      );
+      return;
+    }
+
+    // ── 5. Dynamic confidence threshold ──
     const words = text.trim().split(/\s+/).length;
     const minConf = words <= 3 ? NLU_CONFIG.minConfidenceShortText : NLU_CONFIG.minConfidence;
-    if (result.confidence < minConf) return next();
 
-    if (result.intent === "unknown") return next();
+    if (result.confidence < minConf) {
+      // Low confidence + bot mentioned → clarify
+      if (botMentioned) {
+        await ctx.reply(
+          "Не уверен что понял. Ты про тренировку? Напиши подробнее, например:\n💬 «Футбол в среду в 19, 10 человек»",
+          { reply_to_message_id: ctx.message.message_id }
+        );
+      }
+      return next();
+    }
+
+    if (result.intent === "unknown") {
+      if (botMentioned) {
+        await ctx.reply(
+          "Не понял. Попробуй:\n💬 «Забей хоккей на понедельник в 20»\n💬 «Что ты умеешь?»",
+          { reply_to_message_id: ctx.message.message_id }
+        );
+      }
+      return next();
+    }
 
     // ── 5. Handle intents ──
 

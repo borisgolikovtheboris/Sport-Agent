@@ -61,16 +61,22 @@ export async function plusHandler(ctx: MyContext, next: NextFunction): Promise<v
   const senderName = [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" ");
   const senderUsername = ctx.from!.username ?? null;
 
-  // Find nearest active event
-  const event = await prisma.event.findFirst({
-    where: {
-      groupId,
-      status: "ACTIVE",
-      datetime: { gt: new Date() },
-    },
-    include: { participants: true },
-    orderBy: { datetime: "asc" },
-  });
+  // Find event: if reply to a card → use that event, otherwise latest created
+  let event = null;
+  const replyToId = ctx.message.reply_to_message?.message_id;
+  if (replyToId) {
+    event = await prisma.event.findFirst({
+      where: { groupId, messageId: replyToId, status: "ACTIVE" },
+      include: { participants: true },
+    });
+  }
+  if (!event) {
+    event = await prisma.event.findFirst({
+      where: { groupId, status: "ACTIVE", datetime: { gt: new Date() } },
+      include: { participants: true },
+      orderBy: { createdAt: "desc" },
+    });
+  }
 
   if (!event) return next();
 
@@ -131,7 +137,9 @@ export async function plusHandler(ctx: MyContext, next: NextFunction): Promise<v
         formatEventCard(updated),
         { parse_mode: "HTML", reply_markup: rsvpKeyboard(event.id) }
       );
-    } catch (_) {}
+    } catch (err) {
+      console.error("Plus: failed to update card:", (err as any)?.description ?? err);
+    }
   }
 
   // Confirm

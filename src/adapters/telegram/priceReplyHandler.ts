@@ -150,31 +150,52 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
       }
     }
 
-    await prisma.event.update({
-      where: { id: event.id },
-      data: {
-        price,
-        priceRequestMessageId: null,
-        ...(collectorName ? { collectorId: userId, collectorName } : {}),
-      },
-    });
-
-    await enablePaidEvent(event.id);
-    await updateEventCard(ctx, event.id);
-
-    const reply = collectorName
-      ? `💰 ${price} ₽ с человека → ${collectorName}`
-      : `💰 ${price} ₽ с человека`;
-    await ctx.reply(reply);
+    if (collectorName) {
+      // Price + collector in one message
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { price, priceRequestMessageId: null, collectorId: userId, collectorName },
+      });
+      await enablePaidEvent(event.id);
+      await updateEventCard(ctx, event.id);
+      await ctx.reply(`💰 ${price} ₽ с человека → ${collectorName}`);
+    } else {
+      // Price set, now ask who collects
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { price },
+      });
+      await enablePaidEvent(event.id);
+      await updateEventCard(ctx, event.id);
+      const msg = await ctx.reply(`💰 ${price} ₽ с человека\n👤 Кому переводить? (напиши @ник, имя или «мне»)`);
+      await prisma.event.update({
+        where: { id: event.id },
+        data: { priceRequestMessageId: msg.message_id },
+      });
+    }
     return;
   }
 
-  // Fallback: any other pending state — clear and pass through
+  // === Waiting for collector (price already set) ===
+  const lower = text.toLowerCase().trim();
+
+  let collectorId = userId;
+  let collectorName: string;
+
+  if (lower === "мне" || lower === "я" || lower === "сам") {
+    const fullName = [ctx.from?.first_name, (ctx.from as any)?.last_name].filter(Boolean).join(" ");
+    collectorName = ctx.from?.username ? `@${ctx.from.username}` : fullName;
+  } else {
+    collectorName = text.trim();
+  }
+
   await prisma.event.update({
     where: { id: event.id },
-    data: { priceRequestMessageId: null },
+    data: { collectorId, collectorName, priceRequestMessageId: null },
   });
-  return next();
+
+  await updateEventCard(ctx, event.id);
+  await ctx.reply(`👤 Деньги собирает: ${collectorName}`);
 }
 
 async function updateEventCard(ctx: MyContext, eventId: string) {

@@ -86,13 +86,29 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
   const hasSportKeyword = /футбол|хоккей|теннис|баскетбол|волейбол|бадминтон|бег|йога|плавание|тренировка|падел|сквош/i.test(text);
   const looksLikeEvent = hasTimePattern && hasSportKeyword;
   if (!event && !looksLikeEvent) {
+    // Priority 1: event waiting for price (price=null)
     event = await prisma.event.findFirst({
       where: {
         groupId,
         createdBy: userId,
+        price: null,
         priceRequestMessageId: { not: null },
       },
+      orderBy: { createdAt: "desc" },
     });
+    // Priority 2: event waiting for collector (price set, collector=null)
+    if (!event) {
+      event = await prisma.event.findFirst({
+        where: {
+          groupId,
+          createdBy: userId,
+          price: { not: null },
+          collectorId: null,
+          priceRequestMessageId: { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }
   }
 
   if (!event) {

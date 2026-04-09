@@ -280,19 +280,28 @@ export function createNluHandler(): Composer<MyContext> {
         return;
       }
 
-      // Missing date/time — save to session and ask
+      // Missing date and/or time — save to session and ask
       (ctx.session as any).pendingEvent = {
         chatId,
         title,
         maxParticipants: entities.maxParticipants ?? null,
         price: entities.price ?? null,
         createdBy: userId,
+        ...(entities.date ? { partialDate: entities.date } : {}),
       };
 
-      await ctx.reply(
-        `⚽ <b>${title}</b>\n📅 Когда? (формат: <code>ДД.ММ ЧЧ:ММ</code>)`,
-        { parse_mode: "HTML" }
-      );
+      if (entities.date && !entities.time) {
+        // Date known, only need time
+        await ctx.reply(
+          `⚽ <b>${title}</b>\n⏰ Во сколько? (например: <code>19:00</code> или «в 7 вечера»)`,
+          { parse_mode: "HTML" }
+        );
+      } else {
+        await ctx.reply(
+          `⚽ <b>${title}</b>\n📅 Когда? (например: <code>15.04 19:00</code> или «в пятницу в 19»)`,
+          { parse_mode: "HTML" }
+        );
+      }
       return;
     }
 

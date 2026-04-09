@@ -9,34 +9,39 @@ import { MyContext } from "./index";
 // +Иван, +Петя     → named spot
 // +@username        → named spot with username
 // + Иван Петров    → named spot with full name
-const PLUS_PATTERN = /^\+\s*(.+)$/;
-
 interface PlusRequest {
   count: number;
   names: string[];
 }
 
 function parsePlus(text: string): PlusRequest | null {
-  const match = text.trim().match(PLUS_PATTERN);
-  if (!match) return null;
+  const t = text.trim().toLowerCase();
 
-  const after = match[1].trim();
-  if (!after) return null;
-
-  // "+1", "+2", "+3" — anonymous spots
-  const num = parseInt(after, 10);
-  if (!isNaN(num) && num > 0 && num <= 10 && after === String(num)) {
-    return { count: num, names: [] };
+  // "+1", "+2", "+Иван" — starts with +
+  const directMatch = text.trim().match(/^\+\s*(.+)$/);
+  if (directMatch) {
+    const after = directMatch[1].trim();
+    const num = parseInt(after, 10);
+    if (!isNaN(num) && num > 0 && num <= 10 && after === String(num)) {
+      return { count: num, names: [] };
+    }
+    // Named: "+Иван", "+@user"
+    const names = after.split(/[,иi&]\s*/i).map((n) => n.trim()).filter((n) => n.length > 0);
+    if (names.length > 0) return { count: names.length, names };
   }
 
-  // "+Иван, Петя" or "+Иван и Петя" — named spots
-  const names = after
-    .split(/[,иi&]\s*/i)
-    .map((n) => n.trim())
-    .filter((n) => n.length > 0);
+  // "еще +2", "и еще +2 со мной", "+2 со мной", "со мной +2"
+  const plusInText = t.match(/\+\s*(\d+)/);
+  if (plusInText) {
+    const num = parseInt(plusInText[1], 10);
+    if (num > 0 && num <= 10) return { count: num, names: [] };
+  }
 
-  if (names.length > 0) {
-    return { count: names.length, names };
+  // "еще 2", "еще двое", "со мной еще 2", "и я +2"
+  const eshcheMatch = t.match(/(?:еще|ещё)\s*(\d+)/);
+  if (eshcheMatch) {
+    const num = parseInt(eshcheMatch[1], 10);
+    if (num > 0 && num <= 10) return { count: num, names: [] };
   }
 
   return null;

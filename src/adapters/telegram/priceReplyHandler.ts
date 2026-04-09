@@ -130,8 +130,10 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
       return;
     }
 
-    // Check if collector is included: "по 5 тыс, мне" or "500 руб @ivan"
-    const collectorFromPrice = text.match(/[,;]\s*(мне|я|сам|@\w+|[А-ЯЁа-яё]+\s*[А-ЯЁа-яё]*)$/);
+    // Check if collector is included: "по 5 тыс, мне" or "мне, по 500" or "@ivan 500"
+    const collectorFromPrice =
+      text.match(/[,;]\s*(мне|я|сам|@\w+)$/) ||
+      text.match(/^(мне|я|сам|@\w+)[,;]?\s+/i);
     let collectorName: string | null = null;
     if (collectorFromPrice) {
       const raw = collectorFromPrice[1].trim();

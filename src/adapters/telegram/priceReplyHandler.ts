@@ -150,11 +150,17 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
       }
     }
 
+    // Clear ALL stale priceRequestMessageId for this organizer
+    await prisma.event.updateMany({
+      where: { groupId, createdBy: userId, priceRequestMessageId: { not: null } },
+      data: { priceRequestMessageId: null },
+    });
+
     if (collectorName) {
       // Price + collector in one message
       await prisma.event.update({
         where: { id: event.id },
-        data: { price, priceRequestMessageId: null, collectorId: userId, collectorName },
+        data: { price, collectorId: userId, collectorName },
       });
       await enablePaidEvent(event.id);
       await updateEventCard(ctx, event.id);

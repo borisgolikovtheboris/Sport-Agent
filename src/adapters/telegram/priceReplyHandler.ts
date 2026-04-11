@@ -80,32 +80,22 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     ? await prisma.event.findFirst({ where: { priceRequestMessageId: replyToId } })
     : null;
 
-  // Method 2: fallback — organizer's message when waiting for price/info
-  // Skip if message looks like event creation (sport + time/date keywords)
-  const hasTimePattern = /\d{1,2}[.:]\d{2}|в\s+\d{1,2}\s*(утра|вечера|часов|ч\b)|завтра|сегодня|послезавтра|в\s+(понедельник|вторник|сред|четверг|пятниц|суббот|воскресень)/i.test(text);
-  const hasSportKeyword = /футбол|хоккей|теннис|баскетбол|волейбол|бадминтон|бег|йога|плавание|тренировка|падел|сквош/i.test(text);
-  const looksLikeEvent = hasTimePattern && hasSportKeyword;
-  if (!event && !looksLikeEvent) {
-    // Priority 1: event waiting for price (price=null)
-    event = await prisma.event.findFirst({
-      where: {
-        groupId,
-        createdBy: userId,
-        price: null,
-        priceRequestMessageId: { not: null },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    // Priority 2: event waiting for collector (price set, collector=null)
-    if (!event) {
+  // Method 2: fallback — only if message looks like a price or collector answer
+  if (!event) {
+    const lower = text.toLowerCase().trim();
+    const looksLikePrice = /\d/.test(text) || FREE_WORDS.some((w) => lower === w) || /тыс|руб|₽/i.test(text);
+    const looksLikeCollector = /^(мне|я|сам|@\w+)$/i.test(lower) || (lower.split(/\s+/).length <= 3 && /^[А-ЯЁA-Z@]/.test(text));
+
+    if (looksLikePrice) {
       event = await prisma.event.findFirst({
-        where: {
-          groupId,
-          createdBy: userId,
-          price: { not: null },
-          collectorId: null,
-          priceRequestMessageId: { not: null },
-        },
+        where: { groupId, createdBy: userId, price: null, priceRequestMessageId: { not: null } },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+
+    if (!event && looksLikeCollector) {
+      event = await prisma.event.findFirst({
+        where: { groupId, createdBy: userId, price: { not: null }, collectorId: null, priceRequestMessageId: { not: null } },
         orderBy: { createdAt: "desc" },
       });
     }

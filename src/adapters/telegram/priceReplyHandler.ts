@@ -70,6 +70,12 @@ export async function priceReplyHandler(ctx: MyContext, next: NextFunction): Pro
     return next();
   }
 
+  // Skip if bot is waiting for date/time (pendingEvent in session)
+  const pending = (ctx.session as any)?.pendingEvent;
+  if (pending && pending.chatId === String(ctx.chat!.id)) {
+    return next();
+  }
+
   const text = ctx.message.text.trim();
   const groupId = String(ctx.chat!.id);
   const userId = String(ctx.from!.id);

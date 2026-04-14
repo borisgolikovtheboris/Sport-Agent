@@ -1,8 +1,8 @@
-import { Context } from "grammy";
 import { listActiveEvents } from "../../../services/eventService";
 import { cancelConfirmKeyboard, cancelSeriesKeyboard } from "../formatters";
+import { MyContext } from "../index";
 
-export async function cancelCommand(ctx: Context) {
+export async function cancelCommand(ctx: MyContext) {
   if (ctx.chat?.type === "private") {
     await ctx.reply("⚠️ Эта команда работает только в групповых чатах.");
     return;
@@ -11,11 +11,22 @@ export async function cancelCommand(ctx: Context) {
   const userId = String(ctx.from!.id);
   const groupId = String(ctx.chat!.id);
 
+  const session = ctx.session as any;
+  const hadPending = !!(session.pendingEvent || session.pendingSeries || session.pendingSeriesConfirm || session.pendingRecurrenceCheck);
+  delete session.pendingEvent;
+  delete session.pendingSeries;
+  delete session.pendingSeriesConfirm;
+  delete session.pendingRecurrenceCheck;
+
   const result = await listActiveEvents(groupId);
   const myEvents = result.events.filter((e) => e.createdBy === userId);
 
   if (myEvents.length === 0) {
-    await ctx.reply("У тебя нет активных тренировок для отмены.");
+    await ctx.reply(
+      hadPending
+        ? "Создание отменено ❌"
+        : "У тебя нет активных тренировок для отмены."
+    );
     return;
   }
 

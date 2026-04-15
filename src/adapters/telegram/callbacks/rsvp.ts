@@ -1,11 +1,15 @@
 import { Bot } from "grammy";
 import prisma from "../../../db/prisma";
 import { joinEvent, declineParticipant } from "../../../services/participantService";
-import { cancelEvent, getEvent } from "../../../services/eventService";
+import { cancelEvent, getEvent, saveMessageId } from "../../../services/eventService";
 import { cancelSeries } from "../../../services/seriesService";
 import { getReminderMessageIds } from "../../../services/reminderService";
 import { formatEventCard, rsvpKeyboard } from "../formatters";
 import { MyContext } from "../index";
+
+const BUMP_GAP_MESSAGES = 20;
+const BUMP_MIN_INTERVAL_MS = 30 * 60 * 1000;
+const lastBumpAt = new Map<string, number>();
 
 /** Safe answerCallbackQuery — ignores stale/expired queries */
 async function safeAnswer(ctx: MyContext, opts: { text: string; show_alert?: boolean }) {
@@ -91,13 +95,47 @@ export function registerRsvp(bot: Bot<MyContext>) {
     if (!isPrivate) {
       const name = ctx.from.username ? `@${ctx.from.username}` : fullName;
       const goingCount = result.event.participants.filter((p) => p.status === "GOING").length;
-      const maxStr = result.event.maxParticipants ? ` / ${result.event.maxParticipants}` : "";
+      const max = result.event.maxParticipants;
+      const maxStr = max ? ` / ${max}` : "";
+      let confirmMsgId: number | null = null;
       try {
-        await bot.api.sendMessage(
+        const sentConfirm = await bot.api.sendMessage(
           result.event.groupId,
           `${name} записался на ${result.event.title} (👥 ${goingCount}${maxStr})`
         );
+        confirmMsgId = sentConfirm.message_id;
       } catch (_) {}
+
+      // Card bump — push fresh card down the feed on milestones or when buried.
+      const cardMsgId = result.event.messageId;
+      if (cardMsgId) {
+        const prevGoing = goingCount - 1;
+        const firstGoing = goingCount === 1 && !result.rejoined;
+        const hitFull = !!max && goingCount === max;
+        const hitHalf = !!max && prevGoing < max / 2 && goingCount >= max / 2 && goingCount < max;
+        const milestone = firstGoing || hitHalf || hitFull;
+
+        const gap = confirmMsgId ? confirmMsgId - cardMsgId : 0;
+        const sinceBump = Date.now() - (lastBumpAt.get(eventId) ?? 0);
+        const buriedEnough =
+          gap >= BUMP_GAP_MESSAGES && sinceBump >= BUMP_MIN_INTERVAL_MS;
+
+        if (milestone || buriedEnough) {
+          try {
+            await bot.api.editMessageReplyMarkup(result.event.groupId, cardMsgId, {
+              reply_markup: { inline_keyboard: [] },
+            });
+          } catch (_) {}
+          try {
+            const reposted = await bot.api.sendMessage(result.event.groupId, cardText, {
+              reply_markup: rsvpKeyboard(eventId),
+              parse_mode: "HTML",
+            });
+            await saveMessageId(eventId, reposted.message_id);
+            lastBumpAt.set(eventId, Date.now());
+          } catch (_) {}
+        }
+      }
     }
   });
 

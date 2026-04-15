@@ -25,28 +25,46 @@ export async function createEvent(input: CreateEventInput) {
     include: { participants: true },
   });
 
-  // Create SIGNUP_24H reminder if event is more than 24h away
-  const msUntilEvent = input.datetime.getTime() - Date.now();
-  if (msUntilEvent > 24 * 60 * 60 * 1000) {
+  // Pre-event reminder (SIGNUP_24H type is reused for the short-notice variant)
+  const now = Date.now();
+  const eventMs = input.datetime.getTime();
+  const msUntilEvent = eventMs - now;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const TWO_H_MS = 2 * 60 * 60 * 1000;
+  const FIVE_MIN_MS = 5 * 60 * 1000;
+
+  let preEventReminderAt: Date | null = null;
+  if (msUntilEvent > DAY_MS) {
+    preEventReminderAt = new Date(eventMs - DAY_MS);
+  } else if (msUntilEvent > TWO_H_MS + FIVE_MIN_MS) {
+    preEventReminderAt = new Date(eventMs - TWO_H_MS);
+  }
+  if (preEventReminderAt) {
     await prisma.reminder.create({
       data: {
         eventId: event.id,
         type: "SIGNUP_24H",
-        scheduledFor: new Date(input.datetime.getTime() - 24 * 60 * 60 * 1000),
+        scheduledFor: preEventReminderAt,
       },
     });
   }
 
-  // Create RSVP_NUDGE reminder — day before at 20:00
-  const nudgeDate = new Date(input.datetime);
-  nudgeDate.setDate(nudgeDate.getDate() - 1);
-  nudgeDate.setHours(20, 0, 0, 0);
-  if (nudgeDate.getTime() > Date.now()) {
+  // RSVP_NUDGE — 20:00 previous day, or catch-up shortly after creation if that moment already passed
+  const NUDGE_MIN_LEAD_MS = 3 * 60 * 60 * 1000;
+  const nudgeTargetAt = new Date(input.datetime);
+  nudgeTargetAt.setDate(nudgeTargetAt.getDate() - 1);
+  nudgeTargetAt.setHours(20, 0, 0, 0);
+
+  let nudgeAt = nudgeTargetAt.getTime();
+  if (nudgeAt < now + FIVE_MIN_MS) {
+    nudgeAt = now + FIVE_MIN_MS;
+  }
+  if (nudgeAt <= eventMs - NUDGE_MIN_LEAD_MS) {
     await prisma.reminder.create({
       data: {
         eventId: event.id,
         type: "RSVP_NUDGE",
-        scheduledFor: nudgeDate,
+        scheduledFor: new Date(nudgeAt),
       },
     });
   }

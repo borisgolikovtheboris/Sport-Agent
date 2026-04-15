@@ -6,12 +6,22 @@ import { getKnownGroupMembers } from "./services/participantService";
 import prisma from "./db/prisma";
 
 const INTERVAL_MS = 60 * 1000; // 60 seconds
+const QUIET_START_HOUR = 23;
+const QUIET_END_HOUR = 8;
+const MOSCOW_UTC_OFFSET = 3; // MSK = UTC+3, no DST
+
+function isQuietHours(d: Date = new Date()): boolean {
+  const moscowHour = (d.getUTCHours() + MOSCOW_UTC_OFFSET) % 24;
+  return moscowHour >= QUIET_START_HOUR || moscowHour < QUIET_END_HOUR;
+}
 
 export function startScheduler(api: Api<RawApi>) {
-  console.log("⏰ Reminder scheduler started (every 60s)");
+  console.log("⏰ Reminder scheduler started (every 60s, quiet hours 23:00–08:00 MSK)");
 
   setInterval(async () => {
     try {
+      if (isQuietHours()) return;
+
       const reminders = await getDueReminders();
 
       for (const r of reminders) {

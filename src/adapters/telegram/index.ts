@@ -10,6 +10,7 @@ import { newEventConversation } from "./commands/newevent";
 import { startCommand } from "./commands/start";
 import { eventsCommand } from "./commands/events";
 import { cancelCommand } from "./commands/cancel";
+import { rescheduleCommand } from "./commands/reschedule";
 import { registerRsvp } from "./callbacks/rsvp";
 import { registerPaymentCallbacks } from "./callbacks/payment";
 import { paymentsCommand } from "./commands/payments";
@@ -26,6 +27,7 @@ export interface SessionData {
   pendingSeries?: any;
   pendingSeriesConfirm?: any;
   pendingRecurrenceCheck?: any;
+  pendingReschedule?: any;
 }
 
 export type MyContext = Context &
@@ -88,6 +90,7 @@ export function createTelegramBot(token: string) {
 
   bot.command("events", eventsCommand);
   bot.command("cancel", cancelCommand);
+  bot.command("reschedule", rescheduleCommand);
   bot.command("payments", paymentsCommand);
   bot.command("dashboard", dashboardCommand);
 
@@ -171,6 +174,38 @@ export function createTelegramBot(token: string) {
     await safeAnswer(ctx, { text: "Серия отменена" });
     delete (ctx.session as any).pendingSeriesConfirm;
     await ctx.editMessageText("❌ Создание серии отменено.");
+  });
+
+  // ── Callback: pick event to reschedule ──
+  bot.callbackQuery(/^resched_pick:(.+)$/, async (ctx) => {
+    const eventId = ctx.match![1];
+    const event = await prisma.event.findUnique({ where: { id: eventId } });
+    if (!event || event.status !== "ACTIVE") {
+      await safeAnswer(ctx, { text: "Тренировка не найдена", show_alert: true });
+      return;
+    }
+    if (String(ctx.from.id) !== event.createdBy) {
+      await safeAnswer(ctx, { text: "Только организатор может перенести", show_alert: true });
+      return;
+    }
+    await safeAnswer(ctx, { text: "⏰ Выбрано" });
+
+    (ctx.session as any).pendingReschedule = {
+      eventId,
+      chatId: event.groupId,
+      userId: String(ctx.from.id),
+    };
+
+    try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch (_) {}
+
+    const d = event.datetime;
+    const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    const dateStr = `${d.getDate()} ${MONTHS[d.getMonth()]} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    await ctx.reply(
+      `⏰ Перенос «${event.title}» (сейчас ${dateStr}).\n` +
+        `На когда? (например: <code>20:00</code>, <code>завтра в 20</code>, <code>16.04 19:00</code>)`,
+      { parse_mode: "HTML" }
+    );
   });
 
   // ── Callback: recurrence check — one-time ──
@@ -275,6 +310,7 @@ export function createTelegramBot(token: string) {
     { command: "newevent", description: "Создать тренировку" },
     { command: "events", description: "Список тренировок" },
     { command: "cancel", description: "Отменить тренировку" },
+    { command: "reschedule", description: "Изменить время" },
     { command: "payments", description: "Сводка оплат" },
     { command: "help", description: "Помощь" },
   ]);

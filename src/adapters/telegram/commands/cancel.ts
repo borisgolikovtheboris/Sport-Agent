@@ -12,11 +12,18 @@ export async function cancelCommand(ctx: MyContext) {
   const groupId = String(ctx.chat!.id);
 
   const session = ctx.session as any;
-  const hadPending = !!(session.pendingEvent || session.pendingSeries || session.pendingSeriesConfirm || session.pendingRecurrenceCheck);
+  const hadPending = !!(
+    session.pendingEvent ||
+    session.pendingSeries ||
+    session.pendingSeriesConfirm ||
+    session.pendingRecurrenceCheck ||
+    session.pendingReschedule
+  );
   delete session.pendingEvent;
   delete session.pendingSeries;
   delete session.pendingSeriesConfirm;
   delete session.pendingRecurrenceCheck;
+  delete session.pendingReschedule;
 
   const result = await listActiveEvents(groupId);
   const myEvents = result.events.filter((e) => e.createdBy === userId);

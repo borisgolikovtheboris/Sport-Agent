@@ -4,7 +4,7 @@ import { InlineKeyboard } from "grammy";
 import { NLU_CONFIG, shouldTriggerNLU } from "../../nlu/nluConfig";
 import { shouldRunNLU } from "../../nlu/contextFilter";
 import { parseIntent } from "../../nlu/intentParser";
-import { createEvent, saveMessageId, listActiveEvents } from "../../services/eventService";
+import { createEvent, saveMessageId, listActiveEvents, rescheduleEvent, getEvent } from "../../services/eventService";
 import { createSeries, dayNamesToNumbers, formatDaysOfWeek } from "../../services/seriesService";
 import { formatEventCard, formatEventsList, formatSeriesCard, rsvpKeyboard } from "./formatters";
 import { parseDate } from "../../utils/parseDate";
@@ -28,14 +28,133 @@ export function createNluHandler(): Composer<MyContext> {
     const chatId = String(ctx.chat.id);
     const userId = String(ctx.from!.id);
 
+    // ── Check if we're waiting for a reschedule time ──
+    const pendingResch = (ctx.session as any).pendingReschedule;
+    if (pendingResch && pendingResch.chatId === chatId && pendingResch.userId === userId) {
+      const existing = await getEvent(pendingResch.eventId);
+      if (!existing || existing.status !== "ACTIVE") {
+        delete (ctx.session as any).pendingReschedule;
+        await ctx.reply("⚠️ Тренировка больше не активна.");
+        return;
+      }
+
+      let newDatetime: Date | null = null;
+
+      if (pendingResch.partialDate) {
+        const timeMatch = text.trim().match(/^(\d{1,2})[.:](\d{2})$/);
+        if (timeMatch) {
+          const h = parseInt(timeMatch[1], 10);
+          const m = parseInt(timeMatch[2], 10);
+          if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            newDatetime = new Date(`${pendingResch.partialDate}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+          }
+        }
+        if (!newDatetime) {
+          const timeParsed = await smartParseDate(`сегодня ${text}`);
+          if (timeParsed?.time) {
+            newDatetime = new Date(`${pendingResch.partialDate}T${timeParsed.time}:00`);
+          }
+        }
+        if (!newDatetime) {
+          await ctx.reply("⚠️ Не понял время. Если нужно, запусти /reschedule снова.", {
+            parse_mode: "HTML",
+          });
+          delete (ctx.session as any).pendingReschedule;
+          return;
+        }
+        delete pendingResch.partialDate;
+      } else {
+        // Time-only → reuse the original event's date
+        const timeMatch = text.trim().match(/^(\d{1,2})[.:](\d{2})$/);
+        if (timeMatch) {
+          const h = parseInt(timeMatch[1], 10);
+          const m = parseInt(timeMatch[2], 10);
+          if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+            const d = new Date(existing.datetime);
+            d.setHours(h, m, 0, 0);
+            newDatetime = d;
+          }
+        }
+        if (!newDatetime) {
+          newDatetime = parseDate(text.trim());
+        }
+        if (!newDatetime) {
+          const parsed = await smartParseDate(text);
+          if (parsed?.date && parsed?.time) {
+            newDatetime = new Date(`${parsed.date}T${parsed.time}:00`);
+            if (isNaN(newDatetime.getTime())) newDatetime = null;
+          } else if (parsed?.date) {
+            pendingResch.partialDate = parsed.date;
+            await ctx.reply("⏰ А во сколько? (например: <code>19:00</code> или «в 7 вечера»)", {
+              parse_mode: "HTML",
+            });
+            return;
+          }
+        }
+        if (!newDatetime) {
+          await ctx.reply("⚠️ Не понял. Если нужно, запусти /reschedule снова и напиши время, например: <code>20:00</code>, «завтра в 20», <code>16.04 19:00</code>.", {
+            parse_mode: "HTML",
+          });
+          delete (ctx.session as any).pendingReschedule;
+          return;
+        }
+      }
+
+      if (newDatetime < new Date()) {
+        await ctx.reply("⚠️ Эта дата уже прошла. Укажи будущую:");
+        return;
+      }
+
+      const result = await rescheduleEvent(pendingResch.eventId, newDatetime);
+      if (!result.ok) {
+        delete (ctx.session as any).pendingReschedule;
+        await ctx.reply("⚠️ Не удалось перенести тренировку.");
+        return;
+      }
+
+      const updated = await getEvent(pendingResch.eventId);
+      delete (ctx.session as any).pendingReschedule;
+      if (!updated) return;
+
+      const cardText = formatEventCard(updated);
+      if (updated.messageId) {
+        try {
+          await ctx.api.editMessageText(updated.groupId, updated.messageId, cardText, {
+            reply_markup: { inline_keyboard: [[
+              { text: "✅ Иду", callback_data: `go:${updated.id}` },
+              { text: "❌ Не иду", callback_data: `notgo:${updated.id}` },
+            ]] },
+            parse_mode: "HTML",
+          });
+        } catch (_) {}
+      }
+
+      const mentions = updated.participants
+        .filter((p) => p.status === "GOING")
+        .map((p) => (p.username ? `@${p.username}` : p.firstName))
+        .join(" ");
+
+      const d = newDatetime;
+      const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня",
+        "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+      const newDateStr = `${d.getDate()} ${MONTHS[d.getMonth()]} · ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+      const notice = mentions
+        ? `🔄 Перенос: «${updated.title}» теперь ${newDateStr}\n${mentions}`
+        : `🔄 Перенос: «${updated.title}» теперь ${newDateStr}`;
+      await ctx.reply(notice);
+      return;
+    }
+
     // ── Check if we're waiting for series time ──
     const pendingSeries = (ctx.session as any).pendingSeries;
     if (pendingSeries && pendingSeries.chatId === chatId) {
       const timeMatch = text.trim().match(/^(\d{1,2}):(\d{2})$/);
       if (!timeMatch) {
-        await ctx.reply("⚠️ Укажи время в формате <code>ЧЧ:ММ</code>, например: <code>19:00</code>", {
+        await ctx.reply("⚠️ Не понял время. Если нужно, начни заново — например: «Хоккей по четвергам в 19:00».", {
           parse_mode: "HTML",
         });
+        delete (ctx.session as any).pendingSeries;
         return;
       }
       const time = text.trim();
@@ -79,9 +198,10 @@ export function createNluHandler(): Composer<MyContext> {
           }
         }
         if (!datetime) {
-          await ctx.reply("⚠️ Не понял время. Пример: <code>19:00</code> или «в 7 вечера»", {
+          await ctx.reply("⚠️ Не понял время. Если нужно, начни заново — напиши, например: «Хоккей в четверг в 19:00».", {
             parse_mode: "HTML",
           });
+          delete (ctx.session as any).pendingEvent;
           return;
         }
         delete pending.partialDate;
@@ -105,9 +225,10 @@ export function createNluHandler(): Composer<MyContext> {
         }
 
         if (!datetime) {
-          await ctx.reply("⚠️ Не понял. Напиши дату и время, например: <code>15.04 19:00</code> или «в пятницу в 19»", {
+          await ctx.reply("⚠️ Не понял. Если нужно, начни заново — напиши, например: «Хоккей в четверг в 19:00».", {
             parse_mode: "HTML",
           });
+          delete (ctx.session as any).pendingEvent;
           return;
         }
       }

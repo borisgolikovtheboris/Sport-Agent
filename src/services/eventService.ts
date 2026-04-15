@@ -10,6 +10,53 @@ export interface CreateEventInput {
   createdBy: string;
 }
 
+async function scheduleEventReminders(eventId: string, datetime: Date, price: number | null) {
+  const now = Date.now();
+  const eventMs = datetime.getTime();
+  const msUntilEvent = eventMs - now;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const TWO_H_MS = 2 * 60 * 60 * 1000;
+  const FIVE_MIN_MS = 5 * 60 * 1000;
+
+  // Pre-event reminder (SIGNUP_24H type is reused for the short-notice variant)
+  let preEventReminderAt: Date | null = null;
+  if (msUntilEvent > DAY_MS) {
+    preEventReminderAt = new Date(eventMs - DAY_MS);
+  } else if (msUntilEvent > TWO_H_MS + FIVE_MIN_MS) {
+    preEventReminderAt = new Date(eventMs - TWO_H_MS);
+  }
+  if (preEventReminderAt) {
+    await prisma.reminder.create({
+      data: { eventId, type: "SIGNUP_24H", scheduledFor: preEventReminderAt },
+    });
+  }
+
+  // RSVP_NUDGE — 20:00 previous day, or catch-up shortly if that moment already passed
+  const NUDGE_MIN_LEAD_MS = 3 * 60 * 60 * 1000;
+  const nudgeTargetAt = new Date(datetime);
+  nudgeTargetAt.setDate(nudgeTargetAt.getDate() - 1);
+  nudgeTargetAt.setHours(20, 0, 0, 0);
+
+  let nudgeAt = nudgeTargetAt.getTime();
+  if (nudgeAt < now + FIVE_MIN_MS) nudgeAt = now + FIVE_MIN_MS;
+  if (nudgeAt <= eventMs - NUDGE_MIN_LEAD_MS) {
+    await prisma.reminder.create({
+      data: { eventId, type: "RSVP_NUDGE", scheduledFor: new Date(nudgeAt) },
+    });
+  }
+
+  // PAYMENT_AFTER — 1h after event, only if priced
+  if (price) {
+    await prisma.reminder.create({
+      data: {
+        eventId,
+        type: "PAYMENT_AFTER",
+        scheduledFor: new Date(eventMs + 60 * 60 * 1000),
+      },
+    });
+  }
+}
+
 export async function createEvent(input: CreateEventInput) {
   const event = await prisma.event.create({
     data: {
@@ -25,62 +72,28 @@ export async function createEvent(input: CreateEventInput) {
     include: { participants: true },
   });
 
-  // Pre-event reminder (SIGNUP_24H type is reused for the short-notice variant)
-  const now = Date.now();
-  const eventMs = input.datetime.getTime();
-  const msUntilEvent = eventMs - now;
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const TWO_H_MS = 2 * 60 * 60 * 1000;
-  const FIVE_MIN_MS = 5 * 60 * 1000;
-
-  let preEventReminderAt: Date | null = null;
-  if (msUntilEvent > DAY_MS) {
-    preEventReminderAt = new Date(eventMs - DAY_MS);
-  } else if (msUntilEvent > TWO_H_MS + FIVE_MIN_MS) {
-    preEventReminderAt = new Date(eventMs - TWO_H_MS);
-  }
-  if (preEventReminderAt) {
-    await prisma.reminder.create({
-      data: {
-        eventId: event.id,
-        type: "SIGNUP_24H",
-        scheduledFor: preEventReminderAt,
-      },
-    });
-  }
-
-  // RSVP_NUDGE — 20:00 previous day, or catch-up shortly after creation if that moment already passed
-  const NUDGE_MIN_LEAD_MS = 3 * 60 * 60 * 1000;
-  const nudgeTargetAt = new Date(input.datetime);
-  nudgeTargetAt.setDate(nudgeTargetAt.getDate() - 1);
-  nudgeTargetAt.setHours(20, 0, 0, 0);
-
-  let nudgeAt = nudgeTargetAt.getTime();
-  if (nudgeAt < now + FIVE_MIN_MS) {
-    nudgeAt = now + FIVE_MIN_MS;
-  }
-  if (nudgeAt <= eventMs - NUDGE_MIN_LEAD_MS) {
-    await prisma.reminder.create({
-      data: {
-        eventId: event.id,
-        type: "RSVP_NUDGE",
-        scheduledFor: new Date(nudgeAt),
-      },
-    });
-  }
-
-  // Create PAYMENT_AFTER reminder if event has a price
-  if (input.price) {
-    await prisma.reminder.create({
-      data: {
-        eventId: event.id,
-        type: "PAYMENT_AFTER",
-        scheduledFor: new Date(input.datetime.getTime() + 60 * 60 * 1000),
-      },
-    });
-  }
+  await scheduleEventReminders(event.id, input.datetime, input.price);
 
   return event;
+}
+
+export async function rescheduleEvent(eventId: string, newDatetime: Date) {
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return { ok: false as const, reason: "not_found" as const };
+  if (event.status !== "ACTIVE") return { ok: false as const, reason: "inactive" as const };
+
+  await prisma.event.update({
+    where: { id: eventId },
+    data: { datetime: newDatetime },
+  });
+
+  await prisma.reminder.deleteMany({
+    where: { eventId, status: "PENDING" },
+  });
+
+  await scheduleEventReminders(eventId, newDatetime, event.price);
+
+  return { ok: true as const };
 }
 
 export async function saveMessageId(eventId: string, messageId: number) {

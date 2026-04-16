@@ -19,6 +19,8 @@ import { priceRequestHandler } from "./priceRequestHandler";
 import { priceReplyHandler } from "./priceReplyHandler";
 import { plusHandler } from "./plusHandler";
 import { createNluHandler } from "./nluHandler";
+import { createScoreHandler } from "./scoreHandler";
+import { statsCommand } from "./commands/stats";
 import { getHelpResponse } from "./helpResponses";
 
 export interface SessionData {
@@ -92,6 +94,7 @@ export function createTelegramBot(token: string) {
   bot.command("cancel", cancelCommand);
   bot.command("reschedule", rescheduleCommand);
   bot.command("payments", paymentsCommand);
+  bot.command("stats", statsCommand);
   bot.command("dashboard", dashboardCommand);
 
   bot.command("help", async (ctx) => {
@@ -329,6 +332,9 @@ export function createTelegramBot(token: string) {
     }
   });
 
+  // ── Score handler (private chat — before group-only handlers) ──
+  bot.use(createScoreHandler());
+
   // ── Message handlers (before NLU) ──
   bot.on("message:text", plusHandler);
   bot.on("message:text", priceReplyHandler);
@@ -348,6 +354,7 @@ export function createTelegramBot(token: string) {
     { command: "events", description: "Список тренировок" },
     { command: "cancel", description: "Отменить тренировку" },
     { command: "reschedule", description: "Изменить время" },
+    { command: "stats", description: "Статистика очков" },
     { command: "payments", description: "Сводка оплат" },
     { command: "help", description: "Помощь" },
   ]);

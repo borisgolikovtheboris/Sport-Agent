@@ -55,6 +55,15 @@ async function scheduleEventReminders(eventId: string, datetime: Date, price: nu
       },
     });
   }
+
+  // SCORE_COLLECT — 1.5h after event, DM participants for scores
+  await prisma.reminder.create({
+    data: {
+      eventId,
+      type: "SCORE_COLLECT",
+      scheduledFor: new Date(eventMs + 90 * 60 * 1000),
+    },
+  });
 }
 
 export async function createEvent(input: CreateEventInput) {

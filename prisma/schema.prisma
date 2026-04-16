@@ -66,6 +66,7 @@ model Participant {
   username  String?
   firstName String
   status    ParticipantStatus @default(GOING)
+  score     Int?
   joinedAt  DateTime          @default(now())
   event     Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
@@ -115,6 +116,7 @@ enum ReminderType {
   PAYMENT_AFTER
   SERIES_PUBLISH_48H
   RSVP_NUDGE
+  SCORE_COLLECT
 }
 
 enum ReminderStatus {

@@ -34,6 +34,8 @@ export function startScheduler(api: Api<RawApi>) {
             await publishSeriesEvent(api, r);
           } else if (r.type === "RSVP_NUDGE") {
             await sendRsvpNudge(api, r);
+          } else if (r.type === "SCORE_COLLECT") {
+            await sendScoreCollect(api, r);
           }
         } catch (err) {
           console.error(`Failed to send reminder ${r.id}:`, err);
@@ -190,6 +192,57 @@ async function sendRsvpNudge(api: Api<RawApi>, r: PendingReminder) {
       sentAt: new Date(),
       nudgeDmSent: dmSent,
       nudgeDmFailed: dmFailed.length,
+    },
+  });
+}
+
+async function sendScoreCollect(api: Api<RawApi>, r: PendingReminder) {
+  const event = await getEvent(r.eventId);
+  if (!event || event.status === "CANCELLED") {
+    await markReminderSent(r.id);
+    return;
+  }
+
+  const going = event.participants.filter((p) => p.status === "GOING");
+  if (going.length === 0) {
+    await markReminderSent(r.id);
+    return;
+  }
+
+  let dmSent = 0;
+  let dmFailed = 0;
+
+  for (const p of going) {
+    const text =
+      `🏆 Тренировка «<b>${event.title}</b>» завершена!\n\n` +
+      `Сколько очков набрал(а)? Напиши число (или «пропустить»).`;
+
+    try {
+      await api.sendMessage(Number(p.userId), text, {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "Пропустить", callback_data: `score_skip:${event.id}` },
+          ]],
+        },
+      });
+      dmSent++;
+    } catch {
+      dmFailed++;
+    }
+
+    if (going.length > 10) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  await prisma.reminder.update({
+    where: { id: r.id },
+    data: {
+      status: "SENT",
+      sentAt: new Date(),
+      nudgeDmSent: dmSent,
+      nudgeDmFailed: dmFailed,
     },
   });
 }

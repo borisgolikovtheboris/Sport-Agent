@@ -292,6 +292,43 @@ export function createTelegramBot(token: string) {
     }
   });
 
+  // ── Callback: delete bot message (organizer or group admin) ──
+  bot.callbackQuery("bot_delete", async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const msgId = ctx.callbackQuery.message?.message_id;
+    if (!chatId || !msgId) {
+      await safeAnswer(ctx, { text: "Ошибка", show_alert: true });
+      return;
+    }
+    let canDelete = false;
+    try {
+      const member = await ctx.api.getChatMember(chatId, ctx.from.id);
+      canDelete = ["creator", "administrator"].includes(member.status);
+    } catch (_) {}
+    if (!canDelete) {
+      // Check if user is event creator by looking at the event from callback data in same message
+      const buttons = ctx.callbackQuery.message?.reply_markup?.inline_keyboard ?? [];
+      for (const row of buttons) {
+        for (const btn of row) {
+          const m = ("callback_data" in btn) ? btn.callback_data?.match(/^go:(.+)$/) : null;
+          if (m) {
+            const ev = await prisma.event.findUnique({ where: { id: m[1] }, select: { createdBy: true } });
+            if (ev && ev.createdBy === String(ctx.from.id)) canDelete = true;
+          }
+        }
+      }
+    }
+    if (!canDelete) {
+      await safeAnswer(ctx, { text: "Только админ или организатор может удалить", show_alert: true });
+      return;
+    }
+    try {
+      await ctx.api.deleteMessage(chatId, msgId);
+    } catch (_) {
+      await safeAnswer(ctx, { text: "Не удалось удалить — возможно, нет прав", show_alert: true });
+    }
+  });
+
   // ── Message handlers (before NLU) ──
   bot.on("message:text", plusHandler);
   bot.on("message:text", priceReplyHandler);

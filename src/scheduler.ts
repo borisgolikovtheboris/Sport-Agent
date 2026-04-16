@@ -52,8 +52,10 @@ async function sendSignupReminder(api: Api<RawApi>, r: PendingReminder) {
   const card = formatEventCard(event);
   const text = `⏰ Напоминание!\n\n${card}\n\nЕщё не записался? Жми кнопку ниже 👇`;
 
+  const kb = rsvpKeyboard(event.id);
+  kb.row().text("🗑 Удалить", `bot_delete`);
   const sent = await api.sendMessage(event.groupId, text, {
-    reply_markup: rsvpKeyboard(event.id),
+    reply_markup: kb,
     parse_mode: "HTML",
   });
 
@@ -168,9 +170,15 @@ async function sendRsvpNudge(api: Api<RawApi>, r: PendingReminder) {
 
     const groupText = formatNudgeGroup(event, mentions);
 
+    const nudgeMarkup = {
+      inline_keyboard: [
+        ...replyMarkup.inline_keyboard,
+        [{ text: "🗑 Удалить", callback_data: `bot_delete` }],
+      ],
+    };
     await api.sendMessage(event.groupId, groupText, {
       parse_mode: "HTML",
-      reply_markup: replyMarkup,
+      reply_markup: nudgeMarkup,
     });
   }
 
@@ -186,6 +194,18 @@ async function sendRsvpNudge(api: Api<RawApi>, r: PendingReminder) {
   });
 }
 
+function whenLabel(eventDate: Date): string {
+  const now = new Date();
+  const eventDay = new Date(eventDate);
+  eventDay.setHours(0, 0, 0, 0);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((eventDay.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays <= 0) return "сегодня";
+  if (diffDays === 1) return "завтра";
+  return "скоро";
+}
+
 function formatNudgeDM(
   event: { title: string; datetime: Date; maxParticipants: number | null },
   goingCount: number
@@ -197,13 +217,14 @@ function formatNudgeDM(
   const month = MONTHS[d.getMonth()];
   const hours = String(d.getHours()).padStart(2, "0");
   const minutes = String(d.getMinutes()).padStart(2, "0");
+  const label = whenLabel(d);
 
   const spots = event.maxParticipants
     ? `${goingCount} / ${event.maxParticipants}`
     : `${goingCount}`;
 
   return (
-    `👋 Привет! Завтра тренировка, ты ещё не отметился(а):\n\n` +
+    `👋 Привет! Тренировка ${label}, ты ещё не отметился(а):\n\n` +
     `🏃 <b>${event.title}</b>\n` +
     `📅 ${day} ${month} · ${hours}:${minutes}\n` +
     `👥 Записались: ${spots}\n\n` +
@@ -222,9 +243,10 @@ function formatNudgeGroup(
   const month = MONTHS[d.getMonth()];
   const hours = String(d.getHours()).padStart(2, "0");
   const minutes = String(d.getMinutes()).padStart(2, "0");
+  const label = whenLabel(d);
 
   return (
-    `👋 Ребят, завтра тренировка — отметьтесь!\n\n` +
+    `👋 Ребят, тренировка ${label} — отметьтесь!\n\n` +
     `🏃 <b>${event.title}</b> · ${day} ${month} · ${hours}:${minutes}\n\n` +
     `Ждём ответа:\n${mentions}`
   );

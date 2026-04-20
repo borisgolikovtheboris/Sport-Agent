@@ -18,16 +18,24 @@ async function scheduleEventReminders(eventId: string, datetime: Date, price: nu
   const TWO_H_MS = 2 * 60 * 60 * 1000;
   const FIVE_MIN_MS = 5 * 60 * 1000;
 
-  // Pre-event reminder (SIGNUP_24H type is reused for the short-notice variant)
-  let preEventReminderAt: Date | null = null;
-  if (msUntilEvent > DAY_MS) {
-    preEventReminderAt = new Date(eventMs - DAY_MS);
-  } else if (msUntilEvent > TWO_H_MS + FIVE_MIN_MS) {
-    preEventReminderAt = new Date(eventMs - TWO_H_MS);
-  }
-  if (preEventReminderAt) {
+  const TWO_DAYS_MS = 2 * DAY_MS;
+
+  // 48h reminder
+  if (msUntilEvent > TWO_DAYS_MS + FIVE_MIN_MS) {
     await prisma.reminder.create({
-      data: { eventId, type: "SIGNUP_24H", scheduledFor: preEventReminderAt },
+      data: { eventId, type: "SIGNUP_24H", scheduledFor: new Date(eventMs - TWO_DAYS_MS) },
+    });
+  }
+
+  // 24h reminder
+  if (msUntilEvent > DAY_MS + FIVE_MIN_MS) {
+    await prisma.reminder.create({
+      data: { eventId, type: "SIGNUP_24H", scheduledFor: new Date(eventMs - DAY_MS) },
+    });
+  } else if (msUntilEvent > TWO_H_MS + FIVE_MIN_MS) {
+    // Short-notice: 2h before
+    await prisma.reminder.create({
+      data: { eventId, type: "SIGNUP_24H", scheduledFor: new Date(eventMs - TWO_H_MS) },
     });
   }
 

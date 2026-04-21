@@ -23,7 +23,7 @@ async function scheduleEventReminders(eventId: string, datetime: Date, price: nu
   // 48h reminder
   if (msUntilEvent > TWO_DAYS_MS + FIVE_MIN_MS) {
     await prisma.reminder.create({
-      data: { eventId, type: "SIGNUP_24H", scheduledFor: new Date(eventMs - TWO_DAYS_MS) },
+      data: { eventId, type: "SIGNUP_48H", scheduledFor: new Date(eventMs - TWO_DAYS_MS) },
     });
   }
 

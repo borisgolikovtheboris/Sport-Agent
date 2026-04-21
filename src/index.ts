@@ -16,8 +16,8 @@ bot.start({
   onStart: async (info) => {
     console.log(`✅ SportBot started as @${info.username}`);
     try {
-      const { created } = await backfill48hReminders();
-      console.log(`🔁 48h reminder backfill: created ${created}`);
+      const { created, dedupedRows } = await backfill48hReminders();
+      console.log(`🔁 48h reminder backfill: created ${created}, deduped ${dedupedRows}`);
     } catch (err) {
       console.error("48h reminder backfill failed:", err);
     }

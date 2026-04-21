@@ -113,6 +113,7 @@ enum ParticipantStatus {
 
 enum ReminderType {
   SIGNUP_24H
+  SIGNUP_48H
   PAYMENT_AFTER
   SERIES_PUBLISH_48H
   RSVP_NUDGE

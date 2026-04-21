@@ -26,7 +26,7 @@ export function startScheduler(api: Api<RawApi>) {
 
       for (const r of reminders) {
         try {
-          if (r.type === "SIGNUP_24H") {
+          if (r.type === "SIGNUP_24H" || r.type === "SIGNUP_48H") {
             await sendSignupReminder(api, r);
           } else if (r.type === "PAYMENT_AFTER") {
             await sendPaymentReminder(api, r);

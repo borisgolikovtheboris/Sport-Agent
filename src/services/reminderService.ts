@@ -77,6 +77,53 @@ export async function markReminderSent(reminderId: string, messageId?: number) {
 }
 
 /**
+ * Backfill 48h SIGNUP_24H reminders for ACTIVE events that predate the 48h feature.
+ * If the 48h mark has already passed, schedule a catch-up for ~now so the user still gets it.
+ * Skips events that already have a reminder in the 48h window.
+ */
+export async function backfill48hReminders(): Promise<{ created: number }> {
+  const now = new Date();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const TWO_DAYS_MS = 2 * DAY_MS;
+  const FIVE_MIN_MS = 5 * 60 * 1000;
+  const TWO_H_MS = 2 * 60 * 60 * 1000;
+
+  const events = await prisma.event.findMany({
+    where: {
+      status: "ACTIVE",
+      datetime: { gt: new Date(now.getTime() + TWO_H_MS) },
+    },
+    include: { reminders: true },
+  });
+
+  let created = 0;
+  for (const ev of events) {
+    const eventMs = ev.datetime.getTime();
+    const targetMs = eventMs - TWO_DAYS_MS;
+
+    // Detect existing 48h reminder: a SIGNUP_24H scheduled more than ~36h before the event.
+    const THIRTY_SIX_H_MS = 36 * 60 * 60 * 1000;
+    const has48h = ev.reminders.some(
+      (r) =>
+        r.type === "SIGNUP_24H" &&
+        eventMs - r.scheduledFor.getTime() > THIRTY_SIX_H_MS
+    );
+    if (has48h) continue;
+
+    const scheduledFor = new Date(Math.max(targetMs, now.getTime() + FIVE_MIN_MS));
+    // Don't schedule inside the last 2h — 24h/short-notice reminders cover that.
+    if (eventMs - scheduledFor.getTime() < TWO_H_MS) continue;
+
+    await prisma.reminder.create({
+      data: { eventId: ev.id, type: "SIGNUP_24H", scheduledFor },
+    });
+    created++;
+  }
+
+  return { created };
+}
+
+/**
  * Get all reminder message IDs for an event (for updating cards on RSVP).
  */
 export async function getReminderMessageIds(eventId: string): Promise<number[]> {

@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createTelegramBot } from "./adapters/telegram";
 import { startScheduler } from "./scheduler";
 import { startAPI } from "./api/server";
+import { backfill48hReminders } from "./services/reminderService";
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -12,8 +13,14 @@ const bot = createTelegramBot(token);
 
 bot.start({
   drop_pending_updates: true,
-  onStart: (info) => {
+  onStart: async (info) => {
     console.log(`✅ SportBot started as @${info.username}`);
+    try {
+      const { created } = await backfill48hReminders();
+      console.log(`🔁 48h reminder backfill: created ${created}`);
+    } catch (err) {
+      console.error("48h reminder backfill failed:", err);
+    }
     startScheduler(bot.api);
   },
 });

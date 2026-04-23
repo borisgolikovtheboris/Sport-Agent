@@ -77,6 +77,60 @@ export async function markReminderSent(reminderId: string, messageId?: number) {
 }
 
 /**
+ * Catch-up for PAYMENT_AFTER reminders that should have fired but didn't
+ * (scheduler was down / reminder never got created). For any ACTIVE paid event
+ * whose start was 1–12h ago, if there's no SENT PAYMENT_AFTER row, create or
+ * reschedule one to fire in ~1 minute.
+ */
+export async function catchUpMissedPaymentReminders(): Promise<{ scheduled: number }> {
+  const now = new Date();
+  const ONE_H_MS = 60 * 60 * 1000;
+  const TWELVE_H_MS = 12 * ONE_H_MS;
+  const ONE_MIN_MS = 60 * 1000;
+
+  const events = await prisma.event.findMany({
+    where: {
+      status: "ACTIVE",
+      price: { not: null },
+      datetime: {
+        gte: new Date(now.getTime() - TWELVE_H_MS),
+        lte: new Date(now.getTime() - ONE_H_MS),
+      },
+    },
+    include: {
+      reminders: { where: { type: "PAYMENT_AFTER" } },
+      participants: true,
+    },
+  });
+
+  let scheduled = 0;
+  for (const ev of events) {
+    const hasGoing = ev.participants.some((p) => p.status === "GOING");
+    if (!hasGoing) continue;
+
+    const sent = ev.reminders.find((r) => r.status === "SENT");
+    if (sent) continue;
+
+    const catchUpAt = new Date(now.getTime() + ONE_MIN_MS);
+    const pending = ev.reminders.find((r) => r.status === "PENDING");
+    if (pending) {
+      // Nudge scheduledFor forward to force a retry on next tick.
+      await prisma.reminder.update({
+        where: { id: pending.id },
+        data: { scheduledFor: catchUpAt },
+      });
+    } else {
+      await prisma.reminder.create({
+        data: { eventId: ev.id, type: "PAYMENT_AFTER", scheduledFor: catchUpAt },
+      });
+    }
+    scheduled++;
+  }
+
+  return { scheduled };
+}
+
+/**
  * Backfill SIGNUP_48H reminders for ACTIVE events that predate the 48h feature.
  * If the 48h mark has already passed, schedule a catch-up for ~now so the user still gets it.
  * Idempotent: skips events that already have a SIGNUP_48H reminder. Also collapses any
@@ -93,11 +147,11 @@ export async function backfill48hReminders(): Promise<{ created: number; deduped
   const dupes = await prisma.reminder.groupBy({
     by: ["eventId"],
     where: { type: "SIGNUP_48H", status: "PENDING" },
-    _count: { _all: true },
-    having: { _all: { _count: { gt: 1 } } },
-  } as any);
+    _count: { eventId: true },
+    having: { eventId: { _count: { gt: 1 } } },
+  });
   let dedupedRows = 0;
-  for (const d of dupes as Array<{ eventId: string }>) {
+  for (const d of dupes) {
     const rows = await prisma.reminder.findMany({
       where: { eventId: d.eventId, type: "SIGNUP_48H", status: "PENDING" },
       orderBy: { id: "asc" },

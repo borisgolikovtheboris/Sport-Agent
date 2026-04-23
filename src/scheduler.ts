@@ -6,6 +6,7 @@ import { getKnownGroupMembers } from "./services/participantService";
 import prisma from "./db/prisma";
 
 const INTERVAL_MS = 60 * 1000; // 60 seconds
+const HEARTBEAT_EVERY_N_TICKS = 10; // log a heartbeat every 10 minutes
 const QUIET_START_HOUR = 23;
 const QUIET_END_HOUR = 8;
 const MOSCOW_UTC_OFFSET = 3; // MSK = UTC+3, no DST
@@ -17,15 +18,24 @@ function isQuietHours(d: Date = new Date()): boolean {
 
 export function startScheduler(api: Api<RawApi>) {
   console.log("⏰ Reminder scheduler started (every 60s, quiet hours 23:00–08:00 MSK)");
+  let tick = 0;
 
   setInterval(async () => {
+    tick++;
     try {
-      if (isQuietHours()) return;
+      if (isQuietHours()) {
+        if (tick % HEARTBEAT_EVERY_N_TICKS === 0) console.log(`💤 scheduler tick ${tick} (quiet hours)`);
+        return;
+      }
 
       const reminders = await getDueReminders();
+      if (tick % HEARTBEAT_EVERY_N_TICKS === 0 || reminders.length > 0) {
+        console.log(`🫀 scheduler tick ${tick}: ${reminders.length} due`);
+      }
 
       for (const r of reminders) {
         try {
+          console.log(`→ firing ${r.type} ${r.id} for event ${r.eventId}`);
           if (r.type === "SIGNUP_24H" || r.type === "SIGNUP_48H") {
             await sendSignupReminder(api, r);
           } else if (r.type === "PAYMENT_AFTER") {
@@ -38,7 +48,7 @@ export function startScheduler(api: Api<RawApi>) {
             await sendScoreCollect(api, r);
           }
         } catch (err) {
-          console.error(`Failed to send reminder ${r.id}:`, err);
+          console.error(`Failed to send reminder ${r.id} (${r.type}):`, err);
         }
       }
     } catch (err) {
@@ -83,7 +93,11 @@ async function publishSeriesEvent(api: Api<RawApi>, r: PendingReminder) {
 
 async function sendPaymentReminder(api: Api<RawApi>, r: PendingReminder) {
   const event = await getEvent(r.eventId);
-  if (!event || !event.price) return;
+  if (!event || !event.price) {
+    // Nothing to send — don't leave the reminder PENDING forever.
+    await markReminderSent(r.id);
+    return;
+  }
 
   const payInfoLine = event.paymentInfo ? `\n💳 Реквизиты: ${event.paymentInfo}` : "";
 

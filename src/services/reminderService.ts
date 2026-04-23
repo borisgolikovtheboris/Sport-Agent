@@ -85,7 +85,7 @@ export async function markReminderSent(reminderId: string, messageId?: number) {
 export async function catchUpMissedPaymentReminders(): Promise<{ scheduled: number }> {
   const now = new Date();
   const ONE_H_MS = 60 * 60 * 1000;
-  const TWELVE_H_MS = 12 * ONE_H_MS;
+  const WINDOW_MS = 24 * ONE_H_MS;
   const ONE_MIN_MS = 60 * 1000;
 
   const events = await prisma.event.findMany({
@@ -93,7 +93,7 @@ export async function catchUpMissedPaymentReminders(): Promise<{ scheduled: numb
       status: "ACTIVE",
       price: { not: null },
       datetime: {
-        gte: new Date(now.getTime() - TWELVE_H_MS),
+        gte: new Date(now.getTime() - WINDOW_MS),
         lte: new Date(now.getTime() - ONE_H_MS),
       },
     },
